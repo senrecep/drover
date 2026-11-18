@@ -141,7 +141,7 @@ On Windows, install Git for Windows and put its `usr\bin` folder on PATH next to
 - drover-viewer: opens no file without the Git for Windows tools above. Trailing dots and spaces in a name are dropped before the credential check, as Windows does. A path with a file stream (`name:stream`) or a short 8.3 name (`PROGRA~1`) is not opened. There is no realpath, so before each open PowerShell checks every folder on the path, and a path that goes through a symbolic link or junction, or one the check couldn't finish on, is not opened. Only a full drive path such as `C:\work\notes.txt` opens.
 - drover-git: fetch, pull and push run git through `env`.
 - drover-files: the quick filter needs `sh` and `find`. Network folders (`\\server\share`) are not shown. Opening a file runs the same name and link checks as drover-viewer.
-- drover-open: no editor rows, and `C:\` paths are not looked up.
+- drover-open: no editor rows. Paths on this computer are drive paths such as `C:\work\a.txt`, and a relative path needs a pane folder that is a drive path. Network and device paths are not read.
 - drover-projects: folders on this computer are not listed. Other machines are.
 - drover-arrange: reading the split layout needs `sh` and `hc`.
 - drover-data: the SQLite and TODO views need find and realpath.
@@ -149,7 +149,7 @@ On Windows, install Git for Windows and put its `usr\bin` folder on PATH next to
 - drover-worktrees: creating and removing a worktree on this computer is refused. Spaces on another machine work.
 - drover-history: the "This space" filter. All spaces works. The indexer runs with `py -3` or `python`.
 - drover-ports and drover-overview: listening ports come from netstat and tasklist, with no folder, CPU or memory. Stop asks the process to close and does not force it, so many console programs stay running.
-- drover-agents and drover-review: both read transcripts with Python. drover-agents tries `py -3` and then `python3`. Files whose type Windows would run as a program, network paths and paths with a comma are not opened from it; it offers Copy path instead.
+- drover-agents and drover-review: both read transcripts with Python. drover-agents tries `py -3` and then `python3`. Files whose type Windows would run as a program, network paths and paths with a comma are not opened from it, and neither is a path that goes through a symbolic link or junction; it offers Copy path instead.
 - drover-sim: Android only, as on Linux.
 - The sidebar shows project icons as a plain folder and favicons as letters.
 

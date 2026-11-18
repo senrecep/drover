@@ -77,13 +77,15 @@ JetBrains IDEs, Fleet, Nova, BBEdit, Xcode and Android Studio have no Linux row.
 Windows works with some limits:
 
 - No editor rows. The editor launchers there are `.cmd` files, which would hand the path to `cmd.exe`.
-- Paths on this computer are read only when they start with `/`. Drive paths such as `C:\work\a.txt`
-  or `C:/work/a.txt`, and relative paths in a pane whose folder is a drive path, show "Relative path,
-  but no folder is known". Links, remote paths and copying still work.
+- Paths on this computer are drive paths such as `C:\work\a.txt` or `C:/work/a.txt`, with an
+  optional `:line` or `:line:col`. A relative path is read against the pane's folder only when that
+  folder is a drive path; otherwise the chooser says "Relative path, but no folder is known". Network
+  paths (`\\server\share`), device paths (`\\?\C:\`) and a bare `C:` are not read, and neither is a
+  path Windows would read another way, such as one with a stream (`a.txt:s`) or a short `~1` name.
+- `~` and `~/...` are not read yet, because the home folder there is a drive path. Write the full path.
 - Checking a path needs `sh`: install Git for Windows and put its `usr\bin` on PATH. Without it the
   chooser says so.
-- Open with system app takes only a full drive path such as `C:\work\a.txt`, so with the path
-  handling above it refuses every path on this computer. Show in Explorer and Copy path still work.
+- Open with system app and Show in Explorer take only a full drive path such as `C:\work\a.txt`.
   Before an open, every part of the path is trimmed the way Windows reads it, credential files are
   refused, and PowerShell checks that no folder on the path is a symbolic link or junction.
 - Explorer splits its arguments at commas, so Open with system app and Show in Explorer refuse a

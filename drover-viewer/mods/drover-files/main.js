@@ -72,7 +72,7 @@ export default class DroverFiles extends View {
     // A bad props.folder shows its error rather than silently following the terminal.
     if (this.badFolder) return { cwd: null, on: null, space: null };
     if (this.pinned) return this.pinned;
-    const next = pickLocation({ spaces: spaces(), panes: panes(), focused: focused() }, this.last);
+    const next = pickLocation({ spaces: spaces(), panes: panes(), focused: focused() }, this.last, platform());
     if (next.cwd) this.last = next;
     return next;
   }

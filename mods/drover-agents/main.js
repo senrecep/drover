@@ -15,7 +15,8 @@
 //   (~/.codex/sessions, ~/.codex/archived_sessions) transcripts for usage numbers only (timestamp, model,
 //   token counts). Binaries are only checked for existence, never run.
 // Programs it runs: python3 -I probe.py (reading and parsing) and git rev-parse (read-only, no
-// optional locks or fsmonitor) to find the focused folder's repository root.
+// optional locks or fsmonitor) to find the focused folder's repository root. Open in editor first runs
+// realpath (macOS, Linux) or a PowerShell link check (Windows), then the system opener.
 // Writes only its own hidden caches (.cost-cache-<agent>.json) beside probe.py, and its usage store and
 // aggregate cache (usage-store.json, tokens-cache.json: hashed keys and numbers, no paths or text) in
 // ~/.config/herdr-app/data/drover-agents.
@@ -29,7 +30,7 @@ import { exec, spaces, panes, focused, terminals, theme, home, appHome, props, r
 import {
   mergePrices, formatTokens, formatUsd, contextView, tildify, shortPath, gitArgs, rootFor, modelRows,
   GROUPS, countSummary, pickAgent, stepAgent, itemDetail, parseCommand,
-  tokensAdapter, dayLabel, percent1, heatWeeks, sizeLabel, visibleIn, narrow, navKey, editorArgv, openProblem, openRefusal, pythonCommands,
+  tokensAdapter, dayLabel, percent1, heatWeeks, sizeLabel, visibleIn, narrow, navKey, editorArgv, openProblem, openRefusal, openTargetProblem, pythonCommands,
 } from "./lib/parse.js";
 
 const MOD = "drover-agents";
@@ -258,8 +259,10 @@ export default class Agents extends View {
     const view = this.view;
     cx.spawn(async (cx) => {
       let r = null, err = null;
-      try { r = await exec(argv[0], argv[1]); } catch (e) { err = e; }
-      const text = openProblem(platform, r, err);
+      // Links are checked at click time: the file may have changed since the page loaded.
+      const refused = await openTargetProblem(argv[1][argv[1].length - 1], platform, exec);
+      if (!refused) { try { r = await exec(argv[0], argv[1]); } catch (e) { err = e; } }
+      const text = refused ?? openProblem(platform, r, err);
       if (!text || !view || this.view !== view) return;
       this.view = { ...view, note: text };
       cx.notify();

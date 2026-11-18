@@ -79,10 +79,15 @@ export function splitLocation(t) {
   return { path: t, line: null, col: null };
 }
 
-function looksLikePath(p) {
+// A full drive path on Windows, either separator: "C:\x" or "C:/x". Never "C:" alone or "C:x".
+const DRIVE_PATH = /^[A-Za-z]:[\\/]/;
+
+function looksLikePath(p, win) {
   if (!p || p.length > 1024 || p.includes("\0")) return false;
   if (/^(~|\.{1,2})$/.test(p)) return true;
   if (/^(\/|~\/|\.\.?\/)/.test(p)) return true;
+  // Local Windows: a drive path (spaces allowed, as above), and a relative one written with backslashes.
+  if (win && (DRIVE_PATH.test(p) || (!/\s/.test(p) && /^[\w.@+-]+\\/.test(p)))) return true;
   if (/\s/.test(p)) return false;
   if (/^[a-z][a-z0-9+.-]*:/i.test(p)) return false; // another scheme (mailto:, ssh://)
   if (p.includes("/")) return true;
@@ -90,13 +95,30 @@ function looksLikePath(p) {
   return /^[\w@+-][\w.@+-]*\.[A-Za-z0-9]{1,10}$/.test(p) && !/^\d+(\.\d+)+$/.test(p);
 }
 
-// Absolute candidates for a path as written, nearest guess first.
-export function candidates(p, { home, cwd } = {}) {
+// Absolute candidates for a path as written, nearest guess first. platform is set only for this computer.
+// Local Windows: a drive path, or a relative path against a drive cwd, with "." and ".." resolved and then every
+// part trimmed the way Windows reads it (windowsParts); one it refuses is no candidate.
+export function candidates(p, { home, cwd, platform } = {}) {
   const out = [];
   const add = (x) => { const r = x && resolvePath(x); if (r && r.startsWith("/") && !out.includes(r)) out.push(r); };
+  const win = platform === "windows";
+  // file:///C:/x decodes to "/C:/x": on Windows that is the drive path C:/x.
+  if (win && /^\/[A-Za-z]:[\\/]/.test(p)) p = p.slice(1);
+  const addDrive = (x) => {
+    const r = resolvePath(x.slice(2).replace(/\\/g, "/")), w = r ? windowsParts(x.slice(0, 2) + r) : null;
+    if (w?.path && !out.includes(w.path)) out.push(w.path);
+  };
+  if (win && DRIVE_PATH.test(p)) { addDrive(p); return out; }
   if (p === "~" || p.startsWith("~/")) { if (home) add(home + p.slice(1)); return out; }
   if (p.startsWith("/")) { add(p); return out; }
   if (!cwd) return out;
+  if (win) {
+    if (!DRIVE_PATH.test(cwd) || p.startsWith("\\")) return out;
+    addDrive(cwd + "/" + p);
+    const diffWin = /^[ab][\\/](.+)$/.exec(p);
+    if (diffWin) addDrive(cwd + "/" + diffWin[1]);
+    return out;
+  }
   add(cwd + "/" + p);
   // git diff prefixes: "a/src/x.js", "b/src/x.js"
   const diff = /^[ab]\/(.+)$/.exec(p);
@@ -122,8 +144,18 @@ export function parseTarget(raw, opts = {}) {
   const fileUrl = decodeFileUrl(t);
   const loc = splitLocation(fileUrl ?? t);
   const p = unwrap(loc.path);
-  if (looksLikePath(p)) {
+  if (looksLikePath(p, opts.platform === "windows")) {
     const list = candidates(p, opts);
+    // A drive path, or a relative one against a drive cwd, with no candidate was refused (a stream, a short ~1
+    // name), not left waiting for a folder.
+    const win = opts.platform === "windows", dp = win && /^\/[A-Za-z]:[\\/]/.test(p) ? p.slice(1) : p;
+    const full = !win ? null : DRIVE_PATH.test(dp) ? dp
+      : opts.cwd && DRIVE_PATH.test(opts.cwd) && !/^[\\/~]/.test(p) ? opts.cwd + "/" + p : null;
+    if (!list.length && full) {
+      const r = resolvePath(full.slice(2).replace(/\\/g, "/")), w = r ? windowsParts(full.slice(0, 2) + r) : null;
+      const refused = w?.error ? `Refused: the path has ${w.error}` : "Refused: not a full drive path";
+      return { kind: "path", written: p, line: loc.line, col: loc.col, candidates: list, needsCwd: false, refused };
+    }
     return { kind: "path", written: p, line: loc.line, col: loc.col, candidates: list, needsCwd: !list.length };
   }
   const inText = URL_IN_TEXT.exec(t);
@@ -293,7 +325,12 @@ export function reselect(list, prevId, fallback = 0) {
 // The query a missing path searches for: its file name.
 export const searchQueryFor = (target) => target.kind === "path" ? basename(target.written).slice(0, MAX_QUERY) : (target.query || "");
 // The folder "Reveal in files" opens.
-export const revealFolder = (info) => (info.status === "dir" ? info.abs : parent(info.abs));
+// parent("C:/a.txt") is "C:", which is no folder: a file at a drive root shows the root, "C:/".
+export const revealFolder = (info) => {
+  if (info.status === "dir") return info.abs;
+  const up = parent(info.abs);
+  return /^[A-Za-z]:$/.test(up) ? up + "/" : up;
+};
 
 // argv that opens a local file or folder with the system's app.
 export function systemOpenArgv(platform, path) {

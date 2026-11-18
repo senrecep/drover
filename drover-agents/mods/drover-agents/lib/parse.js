@@ -112,7 +112,7 @@ export function editorArgv(path, home, platform) {
     if (!w?.path || denyReason(w.path) || openRefusal(w.path, platform)) return null;
     return ["explorer.exe", [w.path.replace(/\//g, "\\")]];
   }
-  if (!full.startsWith("/")) return null;
+  if (!full.startsWith("/") || denyReason(full)) return null;
   return platform === "linux" ? ["xdg-open", [full]] : ["open", ["-t", full]];
 }
 
@@ -183,6 +183,33 @@ export function openProblem(platform, result, error) {
     return platform === "linux" ? "Install xdg-utils to open files." : "explorer.exe was not found.";
   }
   return platform === "linux" && result?.code !== 0 ? "Could not open the file: xdg-open found no app for it." : null;
+}
+
+// The last check before an open, given editorArgv's path and exec as run; null when it may open, else why not.
+// Local Windows has no realpath, so a path through a symbolic link or junction is refused, and so is one the check
+// couldn't finish on. macOS and Linux: the real target must not be a credential file either (a harmless name that
+// links to ~/.ssh/id_rsa); without realpath the path itself stands, as in the other drover mods.
+export async function openTargetProblem(path, platform, run) {
+  if (platform === "windows") {
+    const w = windowsParts(path);
+    if (!w?.path) return "Not opened: the path must be a full drive path.";
+    let out = "";
+    try {
+      const r = await run(...winLinkArgv(w.path), { timeout: 15000 });
+      out = r?.code === 0 ? String(r.stdout ?? "").trim() : "";
+    } catch { /* refused below */ }
+    if (out === WIN_LINK_PLAIN) return null;
+    return out === WIN_LINK_MARK ? "Not opened: this path goes through a link or junction. Use Copy path and open it in your editor."
+      : "Not opened: couldn't check this path for links. Use Copy path and open it in your editor.";
+  }
+  let real = path;
+  try {
+    const r = await run("realpath", [path], { timeout: 5000 });
+    const out = r?.code === 0 ? String(r.stdout ?? "").trim() : "";
+    if (out.startsWith("/") && !out.includes("\n")) real = out;
+  } catch { /* the path itself stands */ }
+  const why = denyReason(real);
+  return why ? `Not opened: it leads to a ${why}.` : null;
 }
 
 // The tail of a long path behind "…/", as many whole segments as fit in `max` characters.

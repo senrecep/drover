@@ -87,7 +87,7 @@ export function sourceContext(p) {
   const all = safe(() => panes(), []) || [];
   const pane = typeof p?.pane === "string" && p.pane ? p.pane : f.pane || null;
   const row = pane ? all.find((x) => x.pane === pane) : null;
-  const cwd = typeof p?.cwd === "string" && p.cwd.startsWith("/") ? p.cwd : row?.cwd || f.cwd || null;
+  const platform = safe(() => hostWindow().platform, "macos");
   let on = null;
   if (p && Object.prototype.hasOwnProperty.call(p, "on")) on = typeof p.on === "string" && p.on ? p.on : null;
   else {
@@ -95,7 +95,10 @@ export function sourceContext(p) {
     const space = spaceId ? (safe(() => spaces(), []) || []).find((s) => s.id === spaceId) : null;
     on = space?.machine || null;
   }
-  return { pane, cwd, on, home: safe(() => home(), "") || "", platform: safe(() => hostWindow().platform, "macos") };
+  // A given folder must be absolute: a / path, or on this Windows computer also a drive path such as C:\work.
+  const given = typeof p?.cwd === "string" && (p.cwd.startsWith("/") || (!on && platform === "windows" && /^[A-Za-z]:[\\/]/.test(p.cwd)));
+  const cwd = given ? p.cwd : row?.cwd || f.cwd || null;
+  return { pane, cwd, on, home: safe(() => home(), "") || "", platform };
 }
 
 export default class DroverOpen extends View {
@@ -191,8 +194,9 @@ export default class DroverOpen extends View {
   // A new thing to open: classify it and, for a path, look it up.
   setTarget(raw, cx) {
     this.raw = String(raw ?? "").replace(/\r/g, "").slice(0, MAX_TEXT);
-    this.target = parseTarget(this.raw, { home: this.ctx.home, cwd: this.ctx.cwd });
-    this.info = this.target.kind === "path" ? (this.target.candidates.length ? { status: "checking" } : { status: "unresolved" }) : {};
+    // The platform shapes paths on this computer only; a remote machine's paths stay POSIX.
+    this.target = parseTarget(this.raw, { home: this.ctx.home, cwd: this.ctx.cwd, platform: this.ctx.on ? null : this.ctx.platform });
+    this.info = this.target.kind === "path" ? (this.target.candidates.length ? { status: "checking" } : this.target.refused ? { status: "error", error: this.target.refused } : { status: "unresolved" }) : {};
     this.status = null;
     this.at = 0;
     this.navigated = false;
@@ -414,7 +418,10 @@ export default class DroverOpen extends View {
         if (this.ctx.on) return { ok: false, error: "The file manager shows files on this machine only." };
         const comma = explorerProblem(this.ctx.platform, i.abs);
         if (comma) return { ok: false, error: comma };
-        const [cmd, args] = systemRevealArgv(this.ctx.platform, i.abs);
+        // explorer.exe gets only a full drive path, every part trimmed the way Windows reads it.
+        const w = this.ctx.platform === "windows" ? windowsParts(i.abs) : null;
+        if (this.ctx.platform === "windows" && !w?.path) return { ok: false, error: w?.error ? `Refused: the path has ${w.error}` : "Refused: not a full drive path" };
+        const [cmd, args] = systemRevealArgv(this.ctx.platform, w ? w.path : i.abs);
         return runOpener(cmd, args, this.ctx.platform);
       }
       case "search":

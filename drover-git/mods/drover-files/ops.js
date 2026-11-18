@@ -160,7 +160,10 @@ export async function reveal(abs, dir, on) {
   if (on) throw new Error("Only on this computer");
   const plat = platform(), comma = explorerProblem(plat, abs);
   if (comma) throw new Error(comma);
-  await opener(revealArgv(plat, abs, dir), "Could not show it");
+  // explorer.exe gets only a full drive path, every part trimmed the way Windows reads it.
+  const w = plat === "windows" ? windowsParts(abs) : null;
+  if (plat === "windows" && !w?.path) throw new Error(w?.error ? `Not shown: the path has ${w.error}` : "Not shown: the path must be a full drive path");
+  await opener(revealArgv(plat, w ? w.path : abs, dir), "Could not show it");
 }
 
 // Runs an opener argv. explorer.exe exits 1 even when it worked, so its code means nothing.

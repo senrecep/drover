@@ -521,6 +521,7 @@ export const move = (at, by, n) => (n ? Math.min(n - 1, Math.max(0, at + by)) : 
  */
 const REVEAL_PLATFORMS = new Set(["macos", "linux", "windows"]);
 export const COMMA_PATH = "Explorer can't open paths with a comma. Copy the path instead.";
+export const DRIVE_PATH = "Explorer shows only a full drive path such as C:\\work. Copy the path instead.";
 /** The reveal action's name in the system's own words. */
 export const revealLabel = (platform) =>
   platform === "linux" ? "Show in file manager" : platform === "windows" ? "Show in Explorer" : "Reveal in Finder";
@@ -557,7 +558,8 @@ export function actionsFor(item, ctx) {
       : away ? off(away) : on;
   const reveal = item.machine ? off("Only folders on this computer can be shown in the file manager.")
     : !REVEAL_PLATFORMS.has(ctx.platform) ? off("Not supported on this system.")
-      : ctx.platform === "windows" && String(item.path ?? "").includes(",") ? off(COMMA_PATH) : on;
+      : ctx.platform === "windows" && String(item.path ?? "").includes(",") ? off(COMMA_PATH)
+        : ctx.platform === "windows" && !windowsParts(item.path)?.path ? off(DRIVE_PATH) : on;
   const agentName = (ctx.agent ?? DEFAULT_AGENT).join(" ");
   // drover-git takes the machine from props.on, and falls back to the focused space's machine
   // when it is null: a folder on this computer needs a space on this computer to be shown.
@@ -608,9 +610,11 @@ export function commandsFor(id, item, ctx) {
       }
       return [["overlay", { mod: "drover-files", kind: "dialog", width: 900, height: 640, props: { folder: item.path } }]];
     case "reveal":
-      // explorer.exe splits its arguments at commas; a drive root stays "C:\", never "C:".
-      if (ctx.platform === "windows") return String(item.path).includes(",") ? []
-        : [["exec", "explorer.exe", [item.path.replace(/\//g, "\\").replace(/^([A-Za-z]:)$/, "$1\\")]]];
+      // explorer.exe splits its arguments at commas, and gets only a full drive path; a drive root stays "C:\".
+      if (ctx.platform === "windows") {
+        const w = windowsParts(item.path);
+        return String(item.path).includes(",") || !w?.path ? [] : [["exec", "explorer.exe", [w.path.replace(/\//g, "\\")]]];
+      }
       return ctx.platform === "linux" ? [["exec", "xdg-open", [item.path]]] : [["exec", "open", ["-R", item.path]]];
     default:
       return [];

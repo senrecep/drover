@@ -102,12 +102,15 @@ export const visible = (entries, showNoise) => showNoise ? entries : entries.fil
 
 // Where the browser should look. A mod pane (this one, a viewer) has no folder: while it holds focus, keep
 // the last terminal's place in the same space instead of jumping to the space folder (that would collapse the tree).
-export function pickLocation({ spaces, panes, focused }, prev) {
+// On local Windows a folder that is not a full drive path counts as no folder at all.
+export function pickLocation({ spaces, panes, focused }, prev, platform) {
   const space = spaces.find(s => s.active), f = focused;
   const pane = f?.pane ? panes.find(p => p.pane === f.pane) : null;
   if (pane && pane.terminal === null && prev && prev.space === (space?.id ?? null)) return prev;
   const on = f?.pane === null ? (f?.terminal?.includes("/") ? f.terminal.split("/")[0] : null) : space?.machine ?? null;
-  return { cwd: pane?.cwd || f?.cwd || space?.folder || null, on: on ?? null, space: space?.id ?? null };
+  let cwd = pane?.cwd || f?.cwd || space?.folder || null;
+  if (platform === "windows" && !on && cwd && !windowsParts(cwd)?.path) cwd = null;
+  return { cwd, on: on ?? null, space: space?.id ?? null };
 }
 
 // A network path (\\server\share or //server/share) as a root on this Windows computer: refused,
