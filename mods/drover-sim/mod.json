@@ -1,0 +1,8 @@
+{
+  "place": "none",
+  "title": "Simulator",
+  "version": "0.2.0",
+  "description": "Controls mobile simulators from a panel.",
+  "license": "MIT AND Apache-2.0",
+  "focusable": true
+}

@@ -1,0 +1,7 @@
+{
+  "title": "Viewer",
+  "place": "none",
+  "version": "0.1.0",
+  "description": "Opens a file in a pane to preview Markdown, edit code, show images or page through large files.",
+  "license": "MIT"
+}

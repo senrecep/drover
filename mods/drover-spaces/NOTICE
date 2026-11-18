@@ -1,0 +1,9 @@
+drover-spaces
+
+Third-party material:
+
+icons/project/ is a subset of Material Icon Theme v5.40.0
+https://github.com/material-extensions/vscode-material-icon-theme
+Copyright (c) Material Extensions. MIT License: see icons/project/LICENSE.
+The files are unmodified copies of csharp, typescript, nodejs, go, rust, python, swift, dart,
+kotlin, gradle, java, ruby, php, docker, folder-git and folder.

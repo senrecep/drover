@@ -1,0 +1,12 @@
+{
+  "place": "none",
+  "title": "Open with",
+  "overlay": {
+    "kind": "dialog",
+    "width": 420,
+    "height": 380
+  },
+  "version": "0.1.0",
+  "description": "An Open with chooser for a link, a path or a piece of text, including the editors you have installed.",
+  "license": "MIT"
+}

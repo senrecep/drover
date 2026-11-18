@@ -1,0 +1,7 @@
+{
+  "place": "none",
+  "title": "Agents",
+  "version": "0.1.0",
+  "description": "Shows the setup and token usage of the coding-agent CLIs installed on this computer.",
+  "license": "MIT"
+}

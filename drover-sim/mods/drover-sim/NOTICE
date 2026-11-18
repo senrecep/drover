@@ -1,0 +1,71 @@
+drover-sim
+Copyright (c) 2026 drover-sim contributors. MIT License (see the LICENSE file at the repository root).
+
+This mod includes third-party assets:
+
+1. ui/smartphone.svg: a Lucide icon (https://lucide.dev).
+   Lucide is licensed under the ISC License:
+   Copyright (c) for portions of Lucide are held by Cole Bemis 2013-2022 as part
+   of Feather (MIT). All other copyright (c) for Lucide are held by Lucide
+   Contributors 2022.
+   Permission to use, copy, modify, and/or distribute this software for any
+   purpose with or without fee is hereby granted, provided that the above
+   copyright notice and this permission notice appear in all copies.
+   THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES.
+
+2. ui/refresh.svg: copied from drover-files (MIT License).
+
+3. lib/panel-ui.js: the shared drover panel kit, vendored byte-identical by sync-lib.mjs;
+   MIT License, same as this mod.
+
+4. helper/simd.swift, helper/simd.h: mostly original work for this mod, under the MIT License like
+   the rest of it. simd.swift also holds the serve-sim portions listed in entry 5, which stay under
+   the Apache License, Version 2.0 (see LICENSE-APACHE), and the herdr-sim Android frame parse in
+   entry 6. Both files call Apple's private CoreSimulator and SimulatorKit frameworks shipped with
+   Xcode; the few declarations in simd.h were taken from those frameworks' own runtime class
+   metadata.
+
+5. serve-sim 0.1.49 by Evan Bacon (https://github.com/EvanBacon/serve-sim), Apache License,
+   Version 2.0. The author is named in the package's package.json; the package has no copyright
+   line or NOTICE file of its own. The full license text is in LICENSE-APACHE. Adapted, and
+   modified for drover-sim:
+   - helper/simd.swift: the touch phase mapping (a move is sent as Down), the IndigoHIDEdge
+     values, scroll as a one-finger drag with edge re-anchoring, and the Device Hub input repair
+     sequence.
+   - lib/devicehub.js: the Device Hub notify key, the shadowed check and the repair order.
+   - lib/throttle.js: wheelToScroll's web wheel sign and pointer anchor, the shape the
+     scroll-as-drag takes.
+
+6. herdr-sim by Robert Soriano (https://github.com/wobsoriano/herdr-sim), MIT License. Adapted,
+   and modified for drover-sim:
+   - lib/ring.js: the frame ring with a delayed reveal, the due-time gate and one slot set per
+     view.
+   - lib/coords.js: touchEdge's HOME_BAND 0.93 rule for the bottom edge.
+   - helper/simd.swift: the Android frame source, i.e. the ImageFormat protobuf request and the
+     Image.image (field 4) extraction for streamScreenshot, rewritten in Swift.
+   - main.js: the stacked image render, so a frame is decoded before it is on top.
+   - lib/sim.js: the Android input argument shapes (motionevent DOWN/MOVE/UP with moves
+     coalesced, the swipe ... 120 wheel, the USB usage to Android keycode table and
+     keycombination 59 for Shift). herdr-sim runs adb through sh -c; here each one is an argv.
+
+   MIT License
+
+   Copyright (c) 2026 Robert Soriano
+
+   Permission is hereby granted, free of charge, to any person obtaining a copy
+   of this software and associated documentation files (the "Software"), to deal
+   in the Software without restriction, including without limitation the rights
+   to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+   copies of the Software, and to permit persons to whom the Software is
+   furnished to do so, subject to the following conditions:
+
+   The above copyright notice and this permission notice shall be included in all
+   copies or substantial portions of the Software.
+
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+   AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+   SOFTWARE.

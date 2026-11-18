@@ -1,0 +1,18 @@
+{
+  "place": "none",
+  "title": "Drover Tabs",
+  "overlay": {
+    "kind": "popup",
+    "at": "top",
+    "offset": 44,
+    "width": 300,
+    "height": 780
+  },
+  "cloned_from": {
+    "name": "tabs",
+    "version": "0.1.15"
+  },
+  "version": "0.1.0",
+  "description": "The tab bar, with buttons that open and close the side panel's pages.",
+  "license": "MIT AND Apache-2.0"
+}

@@ -1,0 +1,11 @@
+{
+  "place": "none",
+  "title": "Pane header",
+  "cloned_from": {
+    "name": "pane",
+    "version": "0.1.10"
+  },
+  "version": "0.1.0",
+  "description": "A pane header with the program's icon, the agent's name, folder and status, and split, zoom and close buttons.",
+  "license": "MIT AND Apache-2.0"
+}

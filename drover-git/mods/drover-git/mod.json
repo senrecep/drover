@@ -1,0 +1,12 @@
+{
+  "place": "none",
+  "title": "Git",
+  "overlay": {
+    "kind": "dialog",
+    "width": 1100,
+    "height": 720
+  },
+  "version": "0.1.0",
+  "description": "A git dialog for branches, worktrees, fetch, pull, merge and push, and the repository's pull requests.",
+  "license": "MIT"
+}

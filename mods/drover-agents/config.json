@@ -1,0 +1,17 @@
+{
+  "prices": {
+    "// unit": "USD per million tokens, [input, output]; a model matches when its id contains the key (longest key wins); cache write and read are multiples of the input price",
+    "// codex": "OpenAI rows only for Codex models found in ~/.codex/sessions, from the OpenAI API pricing page (standard tier, short context); gpt-5.2-codex and gpt-5.1-codex-mini are not listed there and stay unpriced",
+    "models": {
+      "haiku": [0.1, 0.5],
+      "sonnet": [2, 10],
+      "opus": [4, 20],
+      "fable": [10, 50],
+      "gpt-5.5": [5, 30],
+      "gpt-5.4": [2.5, 15],
+      "gpt-5.3-codex": [1.75, 14]
+    },
+    "cacheWrite": 1.25,
+    "cacheRead": 0.1
+  }
+}

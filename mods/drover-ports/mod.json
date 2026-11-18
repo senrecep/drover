@@ -1,0 +1,12 @@
+{
+  "place": "none",
+  "title": "Ports",
+  "overlay": {
+    "kind": "dialog",
+    "width": 920,
+    "height": 640
+  },
+  "version": "0.1.0",
+  "description": "Lists the TCP ports listening on this computer with the process, folder and Herdr space behind each one.",
+  "license": "MIT"
+}

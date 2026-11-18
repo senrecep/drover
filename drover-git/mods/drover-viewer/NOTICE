@@ -1,0 +1,12 @@
+drover-viewer
+Copyright (c) 2026 drover-viewer contributors. MIT License (see the LICENSE file at the repository root).
+
+Third-party material
+
+icons/
+  File and folder icons from Material Icon Theme v5.40.0
+  https://github.com/material-extensions/vscode-material-icon-theme
+  Copyright (c) 2025 Material Extensions. MIT License.
+  The full license text is in icons/LICENSE; icons/NOTICE lists the source.
+  The icon set is the shared drover subset, vendored as a whole so that
+  lib/.hashes.json can verify every file.

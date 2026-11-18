@@ -1,0 +1,12 @@
+{
+  "place": "none",
+  "title": "Go to anything",
+  "overlay": {
+    "kind": "dialog",
+    "width": 640,
+    "height": 480
+  },
+  "version": "0.1.0",
+  "description": "One search field to jump to any space, tab, agent, panel or drover command.",
+  "license": "MIT"
+}

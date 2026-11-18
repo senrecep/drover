@@ -1,0 +1,16 @@
+.DS_Store
+node_modules/
+__pycache__/
+*.pyc
+*.bak
+*.bak-*
+*.error
+.viewed.json
+.cost-cache-*
+gpui-kit.d.ts
+herdr.d.ts
+jsconfig.json
+data/
+.state/
+bin/
+.omc/

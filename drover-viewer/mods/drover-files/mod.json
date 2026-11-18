@@ -1,0 +1,12 @@
+{
+  "title": "Drover Files",
+  "place": "none",
+  "focusable": true,
+  "cloned_from": {
+    "name": "files",
+    "version": "0.1.15"
+  },
+  "version": "0.1.0",
+  "description": "A file tree that follows the focused terminal's folder and opens files in drover-viewer.",
+  "license": "MIT AND Apache-2.0"
+}

@@ -1,0 +1,16 @@
+drover-pane
+
+This mod started as a modified copy of the `pane` mod (version 0.1.10) shipped with Herdr,
+made with herdr-app's mod.clone. Herdr is licensed under the Apache License,
+Version 2.0; a copy is in LICENSE-APACHE. The parts taken from it remain
+under that license.
+
+The changes and the other files here are Copyright (c) 2026 drover-pane contributors,
+MIT License (see the LICENSE file at the repository root).
+
+The icons in icons/ are from Lucide or drawn after it (https://lucide.dev), ISC License:
+Copyright (c) for portions of Lucide are held by Cole Bemis 2013-2022 as part of Feather (MIT). All
+other copyright (c) for Lucide are held by Lucide Contributors 2022. Permission to use,
+copy, modify, and/or distribute this software for any purpose with or without fee is
+hereby granted, provided that the above copyright notice and this permission notice
+appear in all copies.

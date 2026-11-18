@@ -1,0 +1,12 @@
+{
+  "place": "none",
+  "title": "Dispatch issue",
+  "overlay": {
+    "kind": "dialog",
+    "width": 900,
+    "height": 620
+  },
+  "version": "0.1.0",
+  "description": "Turns a GitHub issue into a worktree, a space, and a worker pane beside a reviewer pane.",
+  "license": "MIT"
+}

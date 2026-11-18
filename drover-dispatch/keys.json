@@ -1,0 +1,5 @@
+{
+  "global": {
+    "alt-shift-i": "mod.open:drover-dispatch"
+  }
+}

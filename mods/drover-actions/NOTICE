@@ -1,0 +1,16 @@
+drover-actions
+Copyright (c) 2026 drover-actions contributors. MIT License (see the LICENSE file at the repository root).
+
+This mod includes third-party assets:
+
+1. icons/*.svg: all ten files in icons/ (action-build.svg, action-configure.svg,
+   action-debug.svg, action-lint.svg, action-play.svg, action-test.svg, chevron-down.svg, plus.svg,
+   settings.svg, x.svg) are Lucide icons (https://lucide.dev), drawn at stroke width 1.75.
+   Lucide is licensed under the ISC License:
+   Copyright (c) for portions of Lucide are held by Cole Bemis 2013-2022 as part
+   of Feather (MIT). All other copyright (c) for Lucide are held by Lucide
+   Contributors 2022.
+   Permission to use, copy, modify, and/or distribute this software for any
+   purpose with or without fee is hereby granted, provided that the above
+   copyright notice and this permission notice appear in all copies.
+   THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES.

@@ -1,0 +1,7 @@
+{
+  "place": "none",
+  "title": "Actions",
+  "version": "0.1.0",
+  "description": "A Run button for the bar that starts your saved project commands in a new tab with one click.",
+  "license": "MIT"
+}

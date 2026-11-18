@@ -1,0 +1,8 @@
+{
+  "place": "none",
+  "title": "Data",
+  "size": 420,
+  "version": "0.1.0",
+  "description": "Shows the SQLite files in the focused folder and turns its TODO.md into a board.",
+  "license": "MIT"
+}

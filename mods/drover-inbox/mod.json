@@ -1,0 +1,8 @@
+{
+  "place": "none",
+  "title": "Inbox",
+  "focusable": true,
+  "version": "0.1.0",
+  "description": "Lists the agents that are waiting on you, with Settle and Snooze to put them away.",
+  "license": "MIT"
+}

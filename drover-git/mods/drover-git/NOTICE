@@ -1,0 +1,11 @@
+drover-git
+Copyright (c) 2026 drover-git contributors. MIT License (see the LICENSE file at the repository root) for the new code.
+
+All of main.js, logic.js, git.js and forges/ were written for this mod.
+lib/ is the shared drover library, vendored by its sync script and checked by lib/.hashes.json.
+
+Third-party material:
+
+icons/ is a subset of Material Icon Theme v5.40.0
+https://github.com/material-extensions/vscode-material-icon-theme
+Copyright (c) Material Extensions. MIT License: see icons/LICENSE and icons/NOTICE.

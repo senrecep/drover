@@ -1,0 +1,11 @@
+{
+  "title": "Composer",
+  "place": "none",
+  "overlay": {
+    "kind": "window",
+    "width": 560
+  },
+  "version": "0.1.0",
+  "description": "Sends one message to the focused terminal or to several agents at once.",
+  "license": "MIT"
+}

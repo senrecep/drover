@@ -1,0 +1,12 @@
+{
+  "place": "none",
+  "title": "Arrangements",
+  "overlay": {
+    "kind": "popup",
+    "width": 440,
+    "height": 480
+  },
+  "version": "0.1.0",
+  "description": "Evens out the focused tab's splits, applies a preset shape, or saves the current shape under a name.",
+  "license": "MIT"
+}

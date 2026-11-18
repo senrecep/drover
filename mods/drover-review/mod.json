@@ -1,0 +1,15 @@
+{
+  "place": "none",
+  "title": "Review",
+  "size": 340,
+  "overlay": {
+    "kind": "popup",
+    "at": "top",
+    "offset": 40,
+    "width": 350,
+    "height": 0.85
+  },
+  "version": "0.1.0",
+  "description": "Lists a space's uncommitted changes with viewed marks, and the files the agent edited in its last turns.",
+  "license": "MIT"
+}

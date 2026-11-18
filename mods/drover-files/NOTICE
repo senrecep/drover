@@ -1,0 +1,23 @@
+drover-files
+Copyright (c) 2026 drover-files contributors. MIT License (see the LICENSE file at the repository root) for the new code.
+
+Derived work:
+
+main.js, model.js and ops.js started as a copy of the "files" mod (version 0.1.15) that ships
+with herdr-app (mod.json "cloned_from"). The listing script approach, the Windows PowerShell
+listing, the git status marks and the follow-the-focused-pane location logic come from it.
+Herdr is licensed under the Apache License, Version 2.0; a copy is in LICENSE-APACHE.
+Those parts remain under that license.
+Changes: Material icons, pin/unfollow, props.folder, opening in drover-viewer, the right-click
+menu (system app, reveal, copy paths, new file/folder, rename, Move to Trash), the hide toggle,
+the quick filter, credential locks, keyboard navigation, dimming of git-ignored entries.
+
+Third-party material:
+
+icons/ is a subset of Material Icon Theme v5.40.0
+https://github.com/material-extensions/vscode-material-icon-theme
+Copyright (c) Material Extensions. MIT License: see icons/LICENSE and icons/NOTICE.
+
+ui/chevron-down.svg and ui/chevron-right.svg are from Lucide (https://lucide.dev),
+Copyright (c) Lucide Contributors, ISC License.
+The other ui/*.svg files were drawn for this mod and are MIT, see the LICENSE file at the repository root.

@@ -1,0 +1,12 @@
+{
+  "place": "none",
+  "title": "Pull requests",
+  "overlay": {
+    "kind": "dialog",
+    "width": 1000,
+    "height": 680
+  },
+  "version": "0.1.0",
+  "description": "Lists open GitHub pull requests for your spaces' repositories with their CI and review state.",
+  "license": "MIT"
+}

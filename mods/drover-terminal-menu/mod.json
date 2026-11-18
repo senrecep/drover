@@ -1,0 +1,16 @@
+{
+  "place": "none",
+  "title": "Terminal menu (with Open selection)",
+  "overlay": {
+    "kind": "popup",
+    "width": 240,
+    "height": 300
+  },
+  "cloned_from": {
+    "name": "menu",
+    "version": "0.1.15"
+  },
+  "version": "0.1.0",
+  "description": "Herdr's context menu plus an Open selection item that sends the selected text to drover-open.",
+  "license": "MIT AND Apache-2.0"
+}

@@ -1,0 +1,8 @@
+{
+  "title": "Spaces",
+  "place": "none",
+  "focusable": true,
+  "version": "0.1.0",
+  "description": "Lists spaces in the sidebar with their tabs, panes and agents, and how long each agent has been in its state.",
+  "license": "MIT"
+}

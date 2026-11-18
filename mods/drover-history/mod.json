@@ -1,0 +1,7 @@
+{
+  "place": "none",
+  "title": "History",
+  "version": "0.1.0",
+  "description": "Searches past Claude Code, Codex and Pi sessions of the active space and resumes one in a new tab.",
+  "license": "MIT"
+}

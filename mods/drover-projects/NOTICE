@@ -1,0 +1,10 @@
+drover-projects
+Copyright (c) 2026 drover-projects contributors. MIT License (see the LICENSE file at the repository root).
+
+Third-party material:
+
+icons/ (except icons/ui-*.svg) is a subset of Material Icon Theme v5.40.0
+https://github.com/material-extensions/vscode-material-icon-theme
+Copyright (c) Material Extensions. MIT License: see icons/LICENSE and icons/NOTICE.
+
+icons/ui-*.svg were drawn for this mod and are MIT, see the LICENSE file at the repository root.

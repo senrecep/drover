@@ -1,0 +1,14 @@
+{
+  "place": "none",
+  "title": "Overview",
+  "overlay": {
+    "kind": "popup",
+    "at": "top",
+    "offset": 40,
+    "width": 1100,
+    "height": 0.8
+  },
+  "version": "0.1.0",
+  "description": "Every agent on every machine sorted by what it needs from you, with CPU, memory and ports per machine.",
+  "license": "MIT"
+}

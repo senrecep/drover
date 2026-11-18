@@ -1,0 +1,22 @@
+{
+  "global": {
+    "cmd-alt-o": "mod.open:drover-open",
+    "cmd-shift-g": "mod.open:drover-git"
+  },
+  "mod:drover-viewer": {
+    "cmd-s": "drover-viewer.save",
+    "cmd-e": "drover-viewer.toggle",
+    "cmd-r": "drover-viewer.reload",
+    "ctrl--": "drover-viewer.back",
+    "cmd-alt-r": "drover-viewer.revert"
+  },
+  "mod:drover-open": {
+    "cmd-alt-o": "drover-open.clipboard"
+  },
+  "mod:drover-files": {
+    "cmd-alt-f": "drover-files.focus-filter",
+    "cmd-shift-.": "drover-files.toggle-hidden",
+    "cmd-alt-p": "drover-files.toggle-follow",
+    "cmd-r": "drover-files.refresh"
+  }
+}

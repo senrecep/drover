@@ -1,0 +1,12 @@
+{
+  "place": "none",
+  "title": "Worktrees",
+  "overlay": {
+    "kind": "dialog",
+    "width": 1000,
+    "height": 680
+  },
+  "version": "0.1.0",
+  "description": "Lists the git worktrees behind your spaces and creates, opens or removes them.",
+  "license": "MIT"
+}

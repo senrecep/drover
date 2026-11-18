@@ -1,0 +1,391 @@
+{
+  "id": "root",
+  "preview": "layouts/drover.png",
+  "cloned_from": {
+    "name": "main",
+    "version": "0.1.15"
+  },
+  "type": "row",
+  "children": [
+    {
+      "id": "content",
+      "type": "column",
+      "children": [
+        {
+          "id": "page-work",
+          "type": "row",
+          "children": [
+            {
+              "id": "sidebar",
+              "type": "column",
+              "children": [
+                {
+                  "id": "brand",
+                  "type": "block",
+                  "content": {
+                    "mod": "workspace-chrome"
+                  },
+                  "size": {
+                    "px": 46
+                  },
+                  "window_drag": true
+                },
+                {
+                  "id": "sidebar-lists",
+                  "type": "column",
+                  "children": [
+                    {
+                      "id": "sidebar-strip",
+                      "type": "block",
+                      "content": {
+                        "mod": "drover-spaces",
+                        "props": {
+                          "strip": true
+                        }
+                      },
+                      "size": {
+                        "px": 34
+                      }
+                    },
+                    {
+                      "id": "sidebar-views",
+                      "type": "stack",
+                      "children": [
+                        {
+                          "id": "spaces",
+                          "type": "block",
+                          "content": {
+                            "mod": "drover-spaces",
+                            "props": {
+                              "tabbed": true
+                            }
+                          }
+                        },
+                        {
+                          "id": "agents",
+                          "type": "block",
+                          "content": {
+                            "mod": "drover-agent-tree",
+                            "props": {
+                              "tabbed": true
+                            }
+                          }
+                        }
+                      ],
+                      "active": "spaces",
+                      "size": {
+                        "weight": 1
+                      }
+                    }
+                  ]
+                },
+                {
+                  "id": "sidebar-footer",
+                  "type": "block",
+                  "content": {
+                    "mod": "workspace-chrome",
+                    "props": {
+                      "footer": true
+                    }
+                  },
+                  "size": {
+                    "px": 69
+                  }
+                }
+              ],
+              "size": {
+                "px": 268
+              },
+              "min": 44,
+              "max": 480,
+              "background": "chrome",
+              "resizable": false
+            },
+            {
+              "id": "work",
+              "type": "column",
+              "children": [
+                {
+                  "id": "tabs",
+                  "type": "row",
+                  "children": [
+                    {
+                      "id": "tab-bar",
+                      "type": "block",
+                      "content": {
+                        "mod": "drover-tabs"
+                      },
+                      "size": {
+                        "weight": 1
+                      }
+                    },
+                    {
+                      "id": "actions",
+                      "type": "block",
+                      "content": {
+                        "mod": "drover-actions",
+                        "props": {
+                          "block": "actions",
+                          "bar": 42
+                        }
+                      },
+                      "size": {
+                        "px": 108
+                      },
+                      "window_drag": true
+                    }
+                  ],
+                  "size": {
+                    "px": 42
+                  },
+                  "resizable": false,
+                  "window_drag": true
+                },
+                {
+                  "id": "work-body",
+                  "type": "row",
+                  "children": [
+                    {
+                      "id": "main",
+                      "type": "block",
+                      "content": {
+                        "tab": "active",
+                        "pane": {
+                          "header": {
+                            "content": {
+                              "mod": "drover-pane"
+                            },
+                            "reveal": "always",
+                            "height": 28,
+                            "position": "top"
+                          },
+                          "background": "background",
+                          "border": {
+                            "width": 1,
+                            "color": "border"
+                          },
+                          "focus": {
+                            "width": 1,
+                            "color": "accent"
+                          },
+                          "radius": 10,
+                          "gap": 8,
+                          "lone": true
+                        }
+                      }
+                    },
+                    {
+                      "id": "panel",
+                      "type": "column",
+                      "children": [
+                        {
+                          "id": "panel-body",
+                          "type": "stack",
+                          "children": [
+                            {
+                              "id": "files",
+                              "type": "block",
+                              "content": {
+                                "mod": "files"
+                              }
+                            },
+                            {
+                              "id": "drover-files",
+                              "type": "block",
+                              "content": {
+                                "mod": "drover-files"
+                              }
+                            },
+                            {
+                              "id": "changes",
+                              "type": "block",
+                              "content": {
+                                "mod": "changes"
+                              }
+                            },
+                            {
+                              "id": "drover-review",
+                              "type": "block",
+                              "content": {
+                                "mod": "drover-review"
+                              }
+                            },
+                            {
+                              "id": "data-sqlite",
+                              "type": "block",
+                              "content": {
+                                "mod": "drover-data",
+                                "props": {
+                                  "view": "sqlite"
+                                }
+                              }
+                            },
+                            {
+                              "id": "data-todo",
+                              "type": "block",
+                              "content": {
+                                "mod": "drover-data",
+                                "props": {
+                                  "view": "todo"
+                                }
+                              }
+                            },
+                            {
+                              "id": "drover-inbox",
+                              "type": "block",
+                              "content": {
+                                "mod": "drover-inbox"
+                              }
+                            },
+                            {
+                              "id": "drover-overview",
+                              "type": "block",
+                              "content": {
+                                "mod": "drover-overview"
+                              }
+                            },
+                            {
+                              "id": "drover-ports",
+                              "type": "block",
+                              "content": {
+                                "mod": "drover-ports"
+                              }
+                            },
+                            {
+                              "id": "drover-pulls",
+                              "type": "block",
+                              "content": {
+                                "mod": "drover-pulls"
+                              }
+                            },
+                            {
+                              "id": "drover-git",
+                              "type": "block",
+                              "content": {
+                                "mod": "drover-git"
+                              }
+                            },
+                            {
+                              "id": "drover-worktrees",
+                              "type": "block",
+                              "content": {
+                                "mod": "drover-worktrees"
+                              }
+                            },
+                            {
+                              "id": "drover-agents",
+                              "type": "block",
+                              "content": {
+                                "mod": "drover-agents"
+                              }
+                            },
+                            {
+                              "id": "drover-projects",
+                              "type": "block",
+                              "content": {
+                                "mod": "drover-projects"
+                              }
+                            },
+                            {
+                              "id": "drover-history",
+                              "type": "block",
+                              "content": {
+                                "mod": "drover-history"
+                              }
+                            },
+                            {
+                              "id": "drover-sim",
+                              "type": "block",
+                              "content": {
+                                "mod": "drover-sim"
+                              }
+                            }
+                          ],
+                          "active": "files"
+                        }
+                      ],
+                      "size": {
+                        "px": 368
+                      },
+                      "min": 280,
+                      "max": 900,
+                      "hidden": true
+                    }
+                  ],
+                  "padding": 8,
+                  "gap": 8
+                }
+              ],
+              "resizable": false
+            }
+          ],
+          "divider": {
+            "width": 1,
+            "color": "border"
+          },
+          "resizable": true
+        },
+        {
+          "id": "status-row",
+          "type": "row",
+          "children": [
+            {
+              "id": "status",
+              "type": "block",
+              "content": {
+                "mod": "workspace-status"
+              },
+              "size": {
+                "weight": 1
+              }
+            },
+            {
+              "id": "drover-arrange",
+              "type": "block",
+              "content": {
+                "mod": "drover-arrange"
+              },
+              "size": {
+                "px": 0
+              }
+            },
+            {
+              "id": "drover-projects-bg",
+              "type": "block",
+              "content": {
+                "mod": "drover-projects",
+                "props": {
+                  "role": "background"
+                }
+              },
+              "size": {
+                "px": 0
+              }
+            }
+          ],
+          "size": {
+            "px": 28
+          },
+          "resizable": false
+        }
+      ],
+      "resizable": false
+    }
+  ],
+  "background": "canvas",
+  "terminal_padding": [
+    14,
+    12
+  ],
+  "divider": {
+    "width": 1,
+    "color": "border"
+  },
+  "resizable": false,
+  "titlebar": "none",
+  "traffic_lights": [
+    12,
+    16
+  ],
+  "terminal_menu": "drover-terminal-menu"
+}
