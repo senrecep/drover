@@ -12,6 +12,7 @@ import {
   IMAGE_MAX, WINDOW_LINES, LINK_KEY, normalizeTarget, nameOf, extOf, kindOf, languageOf, redactInfo, parseCount, readOnlyReason,
   splitLines, lineWindow, parseLineInput, classifyLink, displayUrl, linkMode, draftName, cachePrefix, cacheName, draftOffer, makeDraft,
   formatBytes, ago, saveErrorKind, shortError, lineTotal, launchRisk, revealLabel, revealArgv, openArgv, openerWorked, openError, readError, explorerProblem,
+  windowsParts, winLinkArgv, WIN_LINK_PLAIN, WIN_LINK_MARK,
 } from "./model.js";
 import { lineDiff } from "./diff.js";
 import { TYPE, mono, metaColor, panelHeader, emptyState, button, iconButton } from "./lib/panel-ui.js";
@@ -109,15 +110,34 @@ export default class Viewer extends View {
   async load(gen) {
     const t = this.target, on = t.on;
     try {
-      let why = denyReason(t.path);
+      // A link opened from a file skips normalizeTarget, so local Windows trims the parts here too.
+      const win = !on && platform() === "windows";
+      const w = win ? windowsParts(t.path) : null;
+      if (win && !w) { this.status = "error"; this.message = "Not opened: the path must be a full drive path such as C:\\Users\\you\\notes.txt"; return; }
+      if (w?.error) { this.status = "error"; this.message = "Not opened: the path has " + w.error; return; }
+      const path = w ? w.path : t.path;
+      let why = denyReason(path);
       if (why) { this.status = "denied"; this.message = why; return; }
-      let real = t.path;
+      let real = path;
       // Git for Windows' realpath answers in its own /c/... form, which the host can't read: keep the lexical path there.
-      if (on || platform() !== "windows") try {
-        const r = await exec("realpath", [t.path], { on, timeout: 5000 });
-        const out = r.code === 0 ? r.stdout.trim() : "";
-        if (out.startsWith("/") && !out.includes("\n")) real = out;
-      } catch (e) { /* lexical path stands */ }
+      if (!win) {
+        try {
+          const r = await exec("realpath", [path], { on, timeout: 5000 });
+          const out = r.code === 0 ? r.stdout.trim() : "";
+          if (out.startsWith("/") && !out.includes("\n")) real = out;
+        } catch (e) { /* lexical path stands */ }
+      } else {
+        // Without realpath a link or junction could lead to a credential file unseen, so it is refused, and so is a path
+        // the check couldn't finish on.
+        const r = await exec(...winLinkArgv(path), { timeout: 15000 }).catch(() => null);
+        if (!this.live(gen)) return;
+        const out = r?.code === 0 ? String(r.stdout ?? "").trim() : "";
+        if (out !== WIN_LINK_PLAIN) {
+          this.status = "error";
+          this.message = out === WIN_LINK_MARK ? "This path goes through a link or junction, which could lead to a credential file, so it is not opened." : "Couldn't check this path for links, so it is not opened.";
+          return;
+        }
+      }
       if (!this.live(gen)) return;
       why = denyReason(real);
       if (why) { this.status = "denied"; this.message = why; return; }
@@ -421,7 +441,9 @@ export default class Viewer extends View {
     if (l.kind === "web") this.openWeb(l.url, cx);
     else if (l.kind === "ignore") this.note = l.reason === "unsupported link" ? "Only web links and files open from here" : null;
     else {
-      const why = denyReason(l.path);
+      // Local Windows: only a full drive path, with every part trimmed before the credential check.
+      const w = !this.target.on && platform() === "windows" ? windowsParts(l.path) : undefined;
+      const why = w === null ? "path that is not a full drive path" : w?.error ? "path with " + w.error : denyReason(w ? w.path : l.path);
       if (why) this.error = `Refused to open a ${why}`;
       else if (this.dirty) {
         // The buffer stays here; the linked file opens beside it.

@@ -112,8 +112,12 @@ The viewer reads files with the host and runs a few small tools: `realpath`, `wc
 - Windows: local paths may start with a drive letter (`C:\` or `C:/`). Open in app and Show in Explorer use
   `explorer.exe`. More extensions count as launchers there (`.js`, `.lnk`, `.hta`, `.reg` and others), and the exec
   bit is not checked. Explorer splits its arguments at commas, so a path with a comma is not opened
-  or shown; copy the path instead. Network paths (`\\server\share`) are not opened. The viewer does not
-  resolve symlinks there, so the credential check uses the path as given.
+  or shown; copy the path instead. Network paths (`\\server\share`) are not opened. Windows drops trailing
+  dots and spaces from a name, so the credential check does too (`.ssh.\id_rsa` counts as `.ssh\id_rsa`). A path
+  with a file stream (`name:stream`) or a short 8.3 name (`PROGRA~1`) is not opened; use the full name. There is no
+  realpath, so before each open PowerShell checks every folder on the path, and a path that goes through a
+  symbolic link or junction is not opened. When that check can't run or fails, the file is not opened either.
+  Only a full drive path such as `C:\work\notes.txt` opens; any other form is refused.
   Text files need `wc`, large files also need `tail`, `sed` and `sh`, and image previews need `cp`. Git for
   Windows ships these tools. Put its `usr\bin` folder on PATH. Without them the viewer says so instead of
   opening the file.

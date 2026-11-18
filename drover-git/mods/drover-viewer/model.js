@@ -23,6 +23,31 @@ export function fnv1a(s) {
   return a.toString(16).padStart(8, "0") + b.toString(16).padStart(8, "0");
 }
 
+// Windows path checks, kept byte-identical in every drover mod that carries them.
+// Windows drops trailing dots and spaces from every part (".ssh./id_rsa " is .ssh/id_rsa), reads "x:y" after the
+// drive as stream y of file x, and lets a short 8.3 name such as PROGRA~1 stand for a long one, which could be .ssh.
+// So the credential check gets every part trimmed, and a stream or a short name is refused outright.
+// -> {path} ("C:/..." with every part trimmed) or {error}; null unless p starts with a drive letter and a slash.
+export function windowsParts(p) {
+  const m = /^([A-Za-z]:)([\\/].*)$/.exec(String(p ?? ""));
+  if (!m) return null;
+  const parts = (m[2] ?? "").split(/[\\/]/).filter(Boolean).map((s) => s.replace(/[. ]+$/, ""));
+  if (parts.some((s) => s === "")) return { error: "a name made only of dots or spaces" };
+  if (parts.some((s) => s.includes(":"))) return { error: "a file stream (name:stream)" };
+  if (parts.some((s) => /~\d/.test(s))) return { error: "a short 8.3 name such as PROGRA~1; use the full name" };
+  return { path: m[1] + "/" + parts.join("/") };
+}
+// Local Windows has no realpath, so a link can't be followed to see where it leads. This PowerShell walks from the
+// path up to its drive and prints WIN_LINK_MARK when any existing part is a symbolic link or junction, else
+// WIN_LINK_PLAIN. An error (a part it may not read) prints neither, and the caller then refuses too.
+export const WIN_LINK_PLAIN = "drover:plain";
+export const WIN_LINK_MARK = "drover:link";
+export const winLinkArgv = (p) => ["powershell", ["-NoProfile", "-NonInteractive", "-Command",
+  "$ErrorActionPreference = 'Stop'; & { param($q) while ($q) { if (Test-Path -LiteralPath $q) { $i = Get-Item -LiteralPath $q -Force; "
+  + "if (($i.Attributes -band [IO.FileAttributes]::ReparsePoint) -and $i.LinkType) { '" + WIN_LINK_MARK + "'; exit 0 } }; "
+  + "$q = [IO.Path]::GetDirectoryName($q) }; '" + WIN_LINK_PLAIN + "' } "
+  + "'" + String(p).replace(/\//g, "\\").replace(/['‘’‚‛]/g, "$&$&") + "'"]];
+// End of the Windows path checks.
 const drive = (s) => /^[A-Za-z]:[\\/]/.test(s);
 // props -> {path, on, line} or {error}. `file` is accepted as an alias of `path`.
 // On Windows a local path may also start with a drive letter (C:\ or C:/); it comes back with "/" separators.
@@ -42,8 +67,12 @@ export function normalizeTarget(p, home, platform = "macos") {
   if (platform === "windows" && !on && drive(path)) {
     // resolve("C:/") is "C:": a drive root keeps its slash.
     const r = resolve(path).replace(/^([A-Za-z]:)$/, "$1/");
-    return drive(r) ? { path: r, line, on } : { error: "Path must be absolute", line, on };
+    if (!drive(r)) return { error: "Path must be absolute", line, on };
+    const w = windowsParts(r);
+    return w.error ? { error: "Not opened: the path has " + w.error, line, on } : { path: w.path, line, on };
   }
+  // Local Windows opens only a full drive path: "/x", "C:x", "\\.\" and "\\?\" are refused, never passed on as they are.
+  if (platform === "windows" && !on) return { error: "Path must be a full drive path", line, on };
   if (!path.startsWith("/")) return { error: "Path must be absolute", line, on };
   return { path: resolve(path), line, on };
 }
@@ -94,7 +123,8 @@ const WINDOWS_LAUNCH_EXT = new Set(["lnk", "scr", "hta", "js", "jse", "vbe", "ws
   "application", "appref-ms", "gadget", "inf", "settingcontent-ms", "library-ms", "diagcab", "scf", "rdp", "iqy", "slk", "ade", "adp",
   "msix", "msixbundle", "appx", "appxbundle", "appinstaller", "msu", "pyw", "pyz", "pyzw",
   "chm", "ws", "wsc", "sct", "xll", "vhd", "vhdx", "search-ms", "searchconnector-ms", "website",
-  "jnlp", "theme", "themepack", "mht", "xbap"]);
+  "jnlp", "theme", "themepack", "mht", "xbap",
+  "pyc", "pyo", "ps1xml", "ps2", "ps2xml", "psc2", "vsto", "mde", "accde", "mshxml", "mmc", "ocx", "sys", "dll"]);
 // Would explorer.exe run this path? The name after the last / or \, with the trailing dots and spaces
 // Windows drops ("a.exe." runs a.exe). A name that is only an extension (".js") counts. A ":" means an
 // NTFS stream ("a.exe:s", "a.lnk::$DATA"), which is refused too.

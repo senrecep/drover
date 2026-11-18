@@ -125,9 +125,9 @@ On Linux, opening files and links needs `xdg-open` from xdg-utils. Move to Trash
 
 On Windows, install Git for Windows and put its `usr\bin` folder on PATH next to git, gh and Herdr's `hc`. Many mods use the `sh`, `env`, `stat`, `find`, `wc`, `tail`, `sed` and `cp` from there. Files and links open with `explorer.exe`. A path with a comma is not opened or shown in Explorer, because Explorer reads the comma as a separator, and a file that Windows would run as a program, such as a script or installer, is not opened; you can copy the path instead. Move to Trash sends the item to the Recycle Bin through PowerShell. Windows would delete an item for good when it can't keep it, so the menu says it can't move the item to the Recycle Bin and leaves it alone in those cases: on a network share or a removable drive, when that drive's Recycle Bin is set to delete files at once, when the item is at least as big as the Recycle Bin, or when the Recycle Bin settings can't be read. Where a tool is missing, the panel says what it needs. Some parts do not work on Windows yet, and the panel says so:
 
-- drover-viewer: opens no file without the Git for Windows tools above.
+- drover-viewer: opens no file without the Git for Windows tools above. Trailing dots and spaces in a name are dropped before the credential check, as Windows does. A path with a file stream (`name:stream`) or a short 8.3 name (`PROGRA~1`) is not opened. There is no realpath, so before each open PowerShell checks every folder on the path, and a path that goes through a symbolic link or junction, or one the check couldn't finish on, is not opened. Only a full drive path such as `C:\work\notes.txt` opens.
 - drover-git: fetch, pull and push run git through `env`.
-- drover-files: the quick filter needs `sh` and `find`. Network folders (`\\server\share`) are not shown.
+- drover-files: the quick filter needs `sh` and `find`. Network folders (`\\server\share`) are not shown. Opening a file runs the same name and link checks as drover-viewer.
 - drover-open: no editor rows, and `C:\` paths are not looked up.
 - drover-projects: folders on this computer are not listed. Other machines are.
 - drover-arrange: reading the split layout needs `sh` and `hc`.

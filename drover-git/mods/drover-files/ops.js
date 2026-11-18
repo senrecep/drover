@@ -2,7 +2,7 @@
 import { exec, readTextFile, writeTextFile, appHome, window, panes, run } from "herdr";
 import { LIST_SCRIPT, INDEX_SCRIPT, MOD, parseListing, parseIndex, nameProblem, launchRisk, lockReason, safeJoin, parent, basename, isInside,
   revealLabel, openArgv, revealArgv, trashArgvs, moveArgv, winKindArgv, winMkdirArgv, TRASH_MISSING, SEARCH_NEEDS_SH,
-  explorerProblem, recycleProblem, NO_RECYCLE, NO_RECYCLE_MARK } from "./model.js";
+  explorerProblem, recycleProblem, NO_RECYCLE, NO_RECYCLE_MARK, windowsParts, winLinkArgv, WIN_LINK_PLAIN, WIN_LINK_MARK } from "./model.js";
 import { ignoreArgv, ignoredFromResult, IGNORE_MAX_NAMES } from "./lib/ignored.js";
 
 export const platform = () => window()?.platform ?? "macos";
@@ -82,12 +82,26 @@ export async function realPath(path, on) {
   return (await exists(path, on)) ? path : null;
 }
 
-// Refuses credential files, and paths whose real target is one (a symlink to ~/.ssh/id_rsa).
+// Refuses credential files, and paths whose real target is one (a symlink to ~/.ssh/id_rsa). On Windows: see windowsParts.
 export async function openCheck(abs, on) {
+  // Local Windows opens only a full drive path ("C:/..."); anything else is refused, never passed on as it is.
+  if (localWindows(on) && !windowsParts(abs)) return { ok: false, why: "Locked: not a full drive path" };
   const lexical = lockReason(abs);
   if (lexical) return { ok: false, why: `Locked: ${lexical}` };
-  const real = await realPath(abs, on);
+  let real = await realPath(abs, on);
   if (!real) return { ok: false, why: "It is no longer there" };
+  // Local Windows has no realpath, so a link or junction anywhere on the path is refused, and so is a path the check
+  // couldn't finish on.
+  if (localWindows(on)) {
+    const w = windowsParts(real); // the trimmed name is the one checked and opened
+    if (!w?.path) return { ok: false, why: w?.error ? `Locked: the path has ${w.error}` : "Locked: not a full drive path" };
+    real = w.path;
+    const [cmd, args] = winLinkArgv(real);
+    const r = await exec(cmd, args, { timeout: 15000 }).catch(() => null);
+    const out = r?.code === 0 ? String(r.stdout ?? "").trim() : "";
+    if (out === WIN_LINK_MARK) return { ok: false, why: "Locked: goes through a link or junction" };
+    if (out !== WIN_LINK_PLAIN) return { ok: false, why: "Locked: couldn't check it for links" };
+  }
   const resolved = lockReason(real);
   if (resolved) return { ok: false, why: `Locked: points to a ${resolved}` };
   return { ok: true, real };

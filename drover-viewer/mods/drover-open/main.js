@@ -22,7 +22,7 @@ import {
 } from "./lib/editors.js";
 import {
   parseTarget, actionsFor, prefKey, displayUrl, urlHost, searchQueryFor, revealFolder, systemOpenArgv, systemRevealArgv, infoRisk, finderLabel, missingOpener, explorerProblem,
-  describeLocation, reselect, MAX_TEXT,
+  describeLocation, reselect, MAX_TEXT, windowsParts, winLinkArgv, WIN_LINK_PLAIN, WIN_LINK_MARK,
 } from "./classify.js";
 import { loadPrefs, savePrefs, withChoice, forgetAll } from "./prefs.js";
 import { rgArgv, grepArgv, cleanQuery, parseResults, outcome, MAX_RESULTS } from "./search.js";
@@ -403,9 +403,11 @@ export default class DroverOpen extends View {
         if (i.deny) return { ok: false, error: `Refused: ${i.deny}` };
         const risk = infoRisk(i, this.ctx.platform);
         if (risk) return { ok: false, error: `Not opened: ${risk}. Use ${finderLabel(this.ctx.platform)} instead.` };
-        const comma = explorerProblem(this.ctx.platform, i.abs);
+        const win = await this.windowsOpenCheck(i.abs);
+        if (win.error) return { ok: false, error: win.error };
+        const comma = explorerProblem(this.ctx.platform, win.path);
         if (comma) return { ok: false, error: comma };
-        const [cmd, args] = systemOpenArgv(this.ctx.platform, i.abs);
+        const [cmd, args] = systemOpenArgv(this.ctx.platform, win.path);
         return runOpener(cmd, args, this.ctx.platform);
       }
       case "finder": {
@@ -423,6 +425,22 @@ export default class DroverOpen extends View {
     }
   }
 
+  // -> {path} or {error}. macOS and Linux: the path as it is. Local Windows: only a full drive path, every part
+  // trimmed the way Windows reads it, never a credential file, and no link or junction anywhere on it.
+  async windowsOpenCheck(abs) {
+    if (this.ctx.platform !== "windows") return { path: abs };
+    const w = windowsParts(abs);
+    if (!w) return { error: "Refused: not a full drive path" };
+    if (w.error) return { error: `Refused: the path has ${w.error}` };
+    const deny = denyReason(w.path);
+    if (deny) return { error: `Refused: ${deny}` };
+    const r = await exec(...winLinkArgv(w.path), { timeout: 15000 }).catch(() => null);
+    const out = r?.code === 0 ? String(r.stdout ?? "").trim() : "";
+    if (out === WIN_LINK_MARK) return { error: "Not opened: this path goes through a link or junction. Copy the path instead." };
+    if (out !== WIN_LINK_PLAIN) return { error: "Not opened: couldn't check this path for links. Copy the path instead." };
+    return { path: w.path };
+  }
+
   // `open -a <App> <path>` (macOS) or `<cli> <path>` (Linux): argv only, local only, never a protected path.
   // The choice is remembered for the top bar.
   async openInEditor(editor, i) {
@@ -431,7 +449,9 @@ export default class DroverOpen extends View {
     if (this.ctx.on) return { ok: false, error: "Editors open folders on this machine only." };
     if (i.deny) return { ok: false, error: `Refused: ${i.deny}` };
     if (i.status !== "dir" && i.status !== "file") return { ok: false, error: "Nothing to open here." };
-    const [cmd, args] = editorOpenArgv(editor.name, i.abs, { platform: this.ctx.platform, cli: found.cli });
+    const win = await this.windowsOpenCheck(i.abs);
+    if (win.error) return { ok: false, error: win.error };
+    const [cmd, args] = editorOpenArgv(editor.name, win.path, { platform: this.ctx.platform, cli: found.cli });
     let r;
     try {
       r = await exec(cmd, args, { timeout: 15000 });

@@ -88,7 +88,11 @@ Optional, in `<herdr-app home>/data/drover-git/settings.json`:
   its exit code is ignored because it is 1 even when the file opened. Scripts, shortcuts, installers
   and other files Explorer would run (`.exe`, `.js`, `.lnk`, `.msix`, `.search-ms` and others), and
   paths with a comma (Explorer splits its arguments at commas), are not opened; the view offers Copy
-  path instead. Fetch, pull and push run git
+  path instead. Before opening, PowerShell checks every folder on the path, and a path that goes
+  through a symbolic link or junction, or one the check couldn't finish on, is not opened either.
+  Only a full drive path such as `C:\work\notes.txt` opens; any other form is refused.
+  Trailing dots and spaces in a name are dropped before the credential check, as Windows does, and a
+  path with a file stream (`name:stream`) or a short 8.3 name (`PROGRA~1`) is refused. Fetch, pull and push run git
   through `env` to turn off password prompts, so they need `env` on PATH: Git for Windows has it in
   its `usr\bin` folder, which a default install does not put on PATH. Without it those actions
   fail with "Could not run git". Repositories on another machine run the same commands there.

@@ -8,7 +8,7 @@ import {
   parseStatus, parseLocalBranches, parseRemoteBranches, parseRemoteNames, recentBranches, defaultBranch,
   parseWorktrees, parseRepo, inProgressOp, OP_REFS, parseAheadBehind,
   statusArgs, localArgs, remoteArgs, reflogArgs, repoArgs, worktreeArgs, symrefArgs, incomingArgs, isAncestorArgs,
-  aheadBehindArgs, checkRefArgs, openerArgv, openerWorked, openerError, openerProblem,
+  aheadBehindArgs, checkRefArgs, openerArgv, openerWorked, openerError, openerProblem, windowsParts, winLinkArgv, WIN_LINK_PLAIN, WIN_LINK_MARK,
 } from "./logic.js";
 import { parseRemoteUrls, pickRemote, parseRemote } from "./forges/index.js";
 
@@ -134,14 +134,29 @@ export async function compare(top, on, a, b) {
 
 /**
  * Opens a local file or folder with the system's default app. Credential files are refused.
- * On Windows launchers and paths with a comma are refused too; `copy` then holds the path to offer.
+ * On Windows launchers, paths with a comma and paths through a link or junction are refused too; `copy` then holds
+ * the path to offer. Streams and short 8.3 names are refused outright.
  */
 export async function openLocal(path, platform = "macos") {
-  const p = String(path ?? "");
+  let p = String(path ?? "");
+  // Windows: every part trimmed the way Windows reads it before the credential check, as in drover-viewer.
+  const w = platform === "windows" ? windowsParts(p) : null;
+  // Local Windows opens only a full drive path; anything else is refused, never passed on as it is.
+  if (platform === "windows" && !w) return { ok: false, err: "Refused: not a full drive path" };
+  if (w?.error) return { ok: false, err: "Refused: the path has " + w.error };
+  if (w) p = w.path;
   const argv = p.includes("\0") || isDenied(p) ? null : openerArgv(platform, p);
   if (!argv) return { ok: false, err: "Refused: not a file this view opens" };
   const problem = openerProblem(platform, p);
   if (problem) return { ok: false, err: problem, copy: p };
+  if (platform === "windows") {
+    // No realpath here: a link or junction on the path could lead to a credential file, so it is refused, and so is a
+    // path the check couldn't finish on. The name itself passed the check above, so it may be copied.
+    const r = await exec(...winLinkArgv(p), { timeout: 15000 }).catch(() => null);
+    const out = r?.code === 0 ? String(r.stdout ?? "").trim() : "";
+    if (out === WIN_LINK_MARK) return { ok: false, err: "Not opened: this path goes through a link or junction. Copy the path instead.", copy: p };
+    if (out !== WIN_LINK_PLAIN) return { ok: false, err: "Not opened: couldn't check this path for links. Copy the path instead.", copy: p };
+  }
   try {
     const r = await exec(argv[0], argv[1], { timeout: 10000 });
     const ok = openerWorked(platform, r.code);

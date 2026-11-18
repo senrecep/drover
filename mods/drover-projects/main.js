@@ -149,7 +149,7 @@ export default class Projects extends View {
       try {
         const path = await this.toplevel(machine, cwd);
         const h = await this.homeOf(machine).catch(() => null);
-        if (!path || L.boringPath(path, h) || L.blockedPath(path)) return;
+        if (!path || L.boringPath(path, h) || L.blockedPath(path, machine ? null : platform())) return;
         L.addSample(this.pending, L.keyOf(machine, path), Date.now());
       } finally {
         this.sampling = false;

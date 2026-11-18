@@ -75,8 +75,40 @@ export function expandPath(p, home) {
   return r && r.length > 1 ? r.replace(/\/+$/, "") : r;
 }
 
+// Windows path checks, kept byte-identical in every drover mod that carries them.
+// Windows drops trailing dots and spaces from every part (".ssh./id_rsa " is .ssh/id_rsa), reads "x:y" after the
+// drive as stream y of file x, and lets a short 8.3 name such as PROGRA~1 stand for a long one, which could be .ssh.
+// So the credential check gets every part trimmed, and a stream or a short name is refused outright.
+// -> {path} ("C:/..." with every part trimmed) or {error}; null unless p starts with a drive letter and a slash.
+export function windowsParts(p) {
+  const m = /^([A-Za-z]:)([\\/].*)$/.exec(String(p ?? ""));
+  if (!m) return null;
+  const parts = (m[2] ?? "").split(/[\\/]/).filter(Boolean).map((s) => s.replace(/[. ]+$/, ""));
+  if (parts.some((s) => s === "")) return { error: "a name made only of dots or spaces" };
+  if (parts.some((s) => s.includes(":"))) return { error: "a file stream (name:stream)" };
+  if (parts.some((s) => /~\d/.test(s))) return { error: "a short 8.3 name such as PROGRA~1; use the full name" };
+  return { path: m[1] + "/" + parts.join("/") };
+}
+// Local Windows has no realpath, so a link can't be followed to see where it leads. This PowerShell walks from the
+// path up to its drive and prints WIN_LINK_MARK when any existing part is a symbolic link or junction, else
+// WIN_LINK_PLAIN. An error (a part it may not read) prints neither, and the caller then refuses too.
+export const WIN_LINK_PLAIN = "drover:plain";
+export const WIN_LINK_MARK = "drover:link";
+export const winLinkArgv = (p) => ["powershell", ["-NoProfile", "-NonInteractive", "-Command",
+  "$ErrorActionPreference = 'Stop'; & { param($q) while ($q) { if (Test-Path -LiteralPath $q) { $i = Get-Item -LiteralPath $q -Force; "
+  + "if (($i.Attributes -band [IO.FileAttributes]::ReparsePoint) -and $i.LinkType) { '" + WIN_LINK_MARK + "'; exit 0 } }; "
+  + "$q = [IO.Path]::GetDirectoryName($q) }; '" + WIN_LINK_PLAIN + "' } "
+  + "'" + String(p).replace(/\//g, "\\").replace(/['‘’‚‛]/g, "$&$&") + "'"]];
+// End of the Windows path checks.
+
 /** Why this path must not be listed or opened (credential folders), or null. */
-export const blockedPath = (p) => denyReason(p);
+// Windows drive paths are checked with every part trimmed the way Windows reads them; a stream or 8.3 name is refused.
+// platform "windows" (this computer only) also refuses anything that is not a full drive path.
+export const blockedPath = (p, platform) => {
+  const w = windowsParts(p);
+  if (w) return w.error ?? denyReason(w.path);
+  return platform === "windows" ? "not a full drive path" : denyReason(p);
+};
 
 /** Not a project: the filesystem root and the machine's home. */
 const HOME_FOLDERS = new Set(["Desktop", "Documents", "Downloads", "Library", "Movies", "Music", "Pictures", "Public", "Applications"]);

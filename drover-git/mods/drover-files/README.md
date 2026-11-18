@@ -53,7 +53,12 @@ checks run small fixed PowerShell commands with the path passed as a quoted lite
 
 - The quick filter searches only the folders already loaded unless `sh` and `find` from Git for
   Windows are on PATH. The panel says so when they are not.
-- A link is checked by its own name only; a link whose target is a credential file is not caught.
+- Windows drops trailing dots and spaces from a name, so the credential check does too (`.ssh.\id_rsa`
+  counts as `.ssh\id_rsa`). A path with a file stream (`name:stream`) or a short 8.3 name (`PROGRA~1`) is
+  locked; use the full name.
+- There is no realpath, so before opening a file PowerShell checks every folder on its path. A path that
+  goes through a symbolic link or junction is not opened, and neither is one the check couldn't finish on.
+  Only a full drive path such as `C:\work\notes.txt` opens; any other form is refused.
 - Changing only the letter case of a folder name fails with the system's error. Files work.
 - File actions are slower than on macOS and Linux, since each check starts PowerShell.
 - Move to Trash works only when Windows would really keep the item. On a network share, a USB stick

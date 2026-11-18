@@ -82,7 +82,10 @@ Windows works with some limits:
   but no folder is known". Links, remote paths and copying still work.
 - Checking a path needs `sh`: install Git for Windows and put its `usr\bin` on PATH. Without it the
   chooser says so.
-- Git Bash paths such as `/c/work` are handed to Explorer as `\c\work`, which it does not find.
+- Open with system app takes only a full drive path such as `C:\work\a.txt`, so with the path
+  handling above it refuses every path on this computer. Show in Explorer and Copy path still work.
+  Before an open, every part of the path is trimmed the way Windows reads it, credential files are
+  refused, and PowerShell checks that no folder on the path is a symbolic link or junction.
 - Explorer splits its arguments at commas, so Open with system app and Show in Explorer refuse a
   path with a comma. Copy the path instead.
 - Search in files needs `rg` or `grep` on PATH.

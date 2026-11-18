@@ -17,7 +17,35 @@ export const fresh = (msg, now) => Boolean(msg && typeof msg.at === "number" && 
 export const absOf = (root, rel) => !rel ? root : root.endsWith("/") ? `${root}${rel}` : `${root}/${rel}`;
 
 // A row is locked when it is a credential file or folder, or sits inside one.
-export const rowLock = (abs) => denyReason(abs);
+// Windows path checks, kept byte-identical in every drover mod that carries them.
+// Windows drops trailing dots and spaces from every part (".ssh./id_rsa " is .ssh/id_rsa), reads "x:y" after the
+// drive as stream y of file x, and lets a short 8.3 name such as PROGRA~1 stand for a long one, which could be .ssh.
+// So the credential check gets every part trimmed, and a stream or a short name is refused outright.
+// -> {path} ("C:/..." with every part trimmed) or {error}; null unless p starts with a drive letter and a slash.
+export function windowsParts(p) {
+  const m = /^([A-Za-z]:)([\\/].*)$/.exec(String(p ?? ""));
+  if (!m) return null;
+  const parts = (m[2] ?? "").split(/[\\/]/).filter(Boolean).map((s) => s.replace(/[. ]+$/, ""));
+  if (parts.some((s) => s === "")) return { error: "a name made only of dots or spaces" };
+  if (parts.some((s) => s.includes(":"))) return { error: "a file stream (name:stream)" };
+  if (parts.some((s) => /~\d/.test(s))) return { error: "a short 8.3 name such as PROGRA~1; use the full name" };
+  return { path: m[1] + "/" + parts.join("/") };
+}
+// Local Windows has no realpath, so a link can't be followed to see where it leads. This PowerShell walks from the
+// path up to its drive and prints WIN_LINK_MARK when any existing part is a symbolic link or junction, else
+// WIN_LINK_PLAIN. An error (a part it may not read) prints neither, and the caller then refuses too.
+export const WIN_LINK_PLAIN = "drover:plain";
+export const WIN_LINK_MARK = "drover:link";
+export const winLinkArgv = (p) => ["powershell", ["-NoProfile", "-NonInteractive", "-Command",
+  "$ErrorActionPreference = 'Stop'; & { param($q) while ($q) { if (Test-Path -LiteralPath $q) { $i = Get-Item -LiteralPath $q -Force; "
+  + "if (($i.Attributes -band [IO.FileAttributes]::ReparsePoint) -and $i.LinkType) { '" + WIN_LINK_MARK + "'; exit 0 } }; "
+  + "$q = [IO.Path]::GetDirectoryName($q) }; '" + WIN_LINK_PLAIN + "' } "
+  + "'" + String(p).replace(/\//g, "\\").replace(/['‘’‚‛]/g, "$&$&") + "'"]];
+// End of the Windows path checks.
+// A drive path ("C:/...") only comes from local Windows, so it is checked with every part trimmed (see windowsParts).
+// macOS and Linux paths start with "/" and are checked as they are.
+const lockOne = (p) => { const w = windowsParts(p); return w ? (w.error ?? denyReason(w.path)) : denyReason(p); };
+export const rowLock = (abs) => lockOne(abs);
 
 // Flattens the loaded tree into visible rows, depth first, folders first.
 export function flatten(entries, folders, showNoise, limit = TOTAL) {
@@ -94,6 +122,8 @@ export function expandFolder(folder, home, platform) {
   if (networkRoot(f, platform, null)) return null;
   if (f === "~" || f.startsWith("~/")) { if (!home) return null; f = home.replace(/\/+$/, "") + f.slice(1); }
   if (!f.startsWith("/") && !/^[A-Za-z]:[\\/]/.test(f)) return null;
+  // On Windows only a full drive path is a root, as the open and read checks require.
+  if (platform === "windows" && !/^[A-Za-z]:[\\/]/.test(f)) return null;
   return /^[A-Za-z]:/.test(f) ? f : resolve(f);
 }
 
@@ -122,7 +152,8 @@ const WINDOWS_LAUNCH_EXT = new Set(["lnk", "scr", "hta", "js", "jse", "vbe", "ws
   "application", "appref-ms", "gadget", "inf", "settingcontent-ms", "library-ms", "diagcab", "scf", "rdp", "iqy", "slk", "ade", "adp",
   "msix", "msixbundle", "appx", "appxbundle", "appinstaller", "msu", "pyw", "pyz", "pyzw",
   "chm", "ws", "wsc", "sct", "xll", "vhd", "vhdx", "search-ms", "searchconnector-ms", "website",
-  "jnlp", "theme", "themepack", "mht", "xbap"]);
+  "jnlp", "theme", "themepack", "mht", "xbap",
+  "pyc", "pyo", "ps1xml", "ps2", "ps2xml", "psc2", "vsto", "mde", "accde", "mshxml", "mmc", "ocx", "sys", "dll"]);
 // Would explorer.exe run this path? The name after the last / or \, with the trailing dots and spaces
 // Windows drops ("a.exe." runs a.exe). A name that is only an extension (".js") counts. A ":" means an
 // NTFS stream ("a.exe:s", "a.lnk::$DATA"), which is refused too.
@@ -256,7 +287,7 @@ export function parseIndex(stdout, showNoise) {
 }
 
 // Why a path may not be opened (viewer or system app), or null. Checked on the path and on what it resolves to.
-export const lockReason = (...paths) => { for (const p of paths) { const r = p ? denyReason(p) : null; if (r) return r; } return null; };
+export const lockReason = (...paths) => { for (const p of paths) { const r = p ? lockOne(p) : null; if (r) return r; } return null; };
 
 // The right-click menu for one entry (or the root when rel is "."): [{id, label, disabled?, why?, danger?}] with null separators.
 export function menuItems(t) {
