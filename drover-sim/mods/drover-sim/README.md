@@ -51,6 +51,17 @@ Android needs `adb` on PATH, or in the Android SDK's `platform-tools` (`$ANDROID
 package manager's bin folder (Homebrew on macOS). The AVD list needs the SDK's `emulator` binary.
 The live emulator view uses `/usr/bin/curl` and the emulator's own gRPC port.
 
+Per platform:
+
+- macOS: iOS Simulators (needs Xcode) and Android emulators and devices (needs adb).
+- Linux: Android only, with adb. iOS shows "iOS simulators need macOS" and no Xcode tool is ever
+  run. Frames come from `adb screencap` about once a second; the live emulator view and the
+  Simulator button are macOS only. Show in file manager needs `xdg-open` (xdg-utils).
+- Windows: Android only, with `adb.exe`, found by `where adb.exe`, on PATH, in
+  `%ANDROID_HOME%` or `%ANDROID_SDK_ROOT%`, or in `%LOCALAPPDATA%\Android\Sdk` (Android
+  Studio's default). The emulator list needs `emulator\emulator.exe` in the same SDK. Frames
+  come from `adb screencap` as on Linux. Show in Explorer uses `explorer.exe /select,<file>`.
+
 The companion mod `drover-sim-screen` must be installed next to this one. It draws nothing and
 only holds the frame files.
 
@@ -72,9 +83,10 @@ Every command runs as an argument list, never through a shell:
 | Android screenshot | `adb -s <serial> shell screencap -p /data/local/tmp/drover-sim.png`, then `adb pull` |
 | Android input | `adb -s <serial> shell wm size`, `shell input motionevent DOWN/MOVE/UP <x> <y>`, `shell input swipe <x1> <y1> <x2> <y2> 120`, `shell input keyevent <code>` |
 | Emulator frames (helper) | `/usr/bin/curl --http2-prior-knowledge ... streamScreenshot`, with the emulator's gRPC token passed on stdin |
-| Frame size check | `file -b <file>` |
-| SDK folder | `printenv ANDROID_HOME`, `printenv ANDROID_SDK_ROOT` (only when adb isn't on PATH) |
-| Reveal | `open -R <file>` on macOS |
+| Frame size check | `file -b <file>` on macOS; on Linux and Windows the PNG header is read directly |
+| SDK folder | `printenv ANDROID_HOME`, `printenv ANDROID_SDK_ROOT` (only when adb isn't on PATH); on Windows `where adb.exe` first, then `powershell -NoProfile -NonInteractive -Command [Environment]::GetEnvironmentVariable('<name>')` for ANDROID_HOME, ANDROID_SDK_ROOT and LOCALAPPDATA. Values are never shown |
+| adb and emulator probe | `test -x <path>`; on Windows `<adb.exe> version` and `<emulator.exe> -list-avds` |
+| Reveal | `open -R <file>` on macOS, `xdg-open <folder>` on Linux, `explorer.exe /select,<file>` on Windows |
 
 ### Frames
 

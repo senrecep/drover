@@ -7,7 +7,7 @@
 // - an overlay (mod.open drover-dispatch, or one the block opens): the dialog.
 import { View, div } from "gpui-kit";
 import { h_flex, v_flex, InputState, Input } from "gpui-base";
-import { hc, spaces, panes, agents, focused, theme, settings, run, props, appHome, readTextFile, openOverlay, nextCommand } from "herdr";
+import { hc, spaces, panes, agents, focused, theme, settings, run, props, appHome, readTextFile, openOverlay, nextCommand, window } from "herdr";
 import {
   BODY_MAX, sanitize, oneLine, spaceFolder, spaceProblem, proposedBranch, buildPlan, worktreePath, landingError,
   firstMessage, spaceName, agentCommands, armKey, press, stillArmed, filterIssues, listArgs, viewArgs, userArgs, issueUrl,
@@ -124,7 +124,8 @@ export default class Dispatch extends View {
 
   plan(facts = this.facts, branch = this.inBranch.value()) {
     if (!this.repo || !facts) return null;
-    return buildPlan({ main: this.repo.main, branch, base: facts.base, worktrees: facts.worktrees, branchExists: facts.branches.has(branch), folderExists: facts.folderExists });
+    return buildPlan({ main: this.repo.main, branch, base: facts.base, worktrees: facts.worktrees, branchExists: facts.branches.has(branch), folderExists: facts.folderExists,
+      platform: window()?.platform ?? "macos" });
   }
 
   // ---- acting ----

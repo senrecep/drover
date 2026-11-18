@@ -372,7 +372,7 @@ export default class Git extends View {
     if (this.on) { this.message = { text: "A file viewer is needed for files on another machine", bad: true }; cx.notify(); return; }
     cx.spawn(async (cx) => {
       const r = await openLocal(abs, window()?.platform);
-      if (!r.ok) this.message = { text: r.err, bad: true };
+      if (!r.ok) this.message = { text: r.err, bad: true, copy: r.copy ?? null };
       cx.notify();
     });
   }
@@ -991,6 +991,11 @@ export default class Git extends View {
       .child(shown
         ? div().id("git-status-line").flex_1().min_w(0).truncate().role("status").text_color(shown.bad ? t.blocked : shown.working ? metaColor(t) : t.ansi2).child(shown.text)
         : mono(div().flex_1().min_w(0).truncate().text_color(metaColor(t)).child(this.repo ? tilde(this.repo.top, this.userHome) : "")))
+      .when(Boolean(m?.copy), (el) => el.child(this.button("git-status-copy", "Copy path", t, (cx) => {
+        cx.write_to_clipboard(m.copy);
+        this.message = { text: "Path copied", bad: false };
+        cx.notify();
+      })))
       .when(Boolean(m), (el) => el.child(iconButton({ id: "git-status-dismiss", icon: UI("close"), label: "Dismiss message",
         onClick: (cx) => { this.message = null; cx.notify(); } }, t)))
       .when(Boolean(this.data), (el) => el.child(div().flex_none().text_color(metaColor(t)).child(`read ${ago(Date.now() - this.data.readAt)} ago`.replace("now ago", "just now"))));

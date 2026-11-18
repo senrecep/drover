@@ -35,7 +35,7 @@ What it touches:
   - `gh pr list --repo <repo> --state open --limit 100 --json ...` and a `review-requested:@me` search;
   - `gh api graphql` for merge settings and review threads;
   - `gh pr view` and `gh pr merge --auto` for auto-merge;
-  - `open <url>` for Open.
+  - `open <url>` for Open on macOS, `xdg-open <url>` on Linux and `explorer.exe <url>` on Windows.
 - `hc`: `send <agent> <text>`, only on the second click of an agent button.
 - Reads outside its folder: the git remotes of your open spaces.
 - Writes: nothing on disk. The filter lives in localStorage.

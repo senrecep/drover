@@ -590,3 +590,57 @@ export function placeOf(folder, paneList, spaceList) {
   const space = (spaceList ?? []).find((s) => (s.tabs ?? []).some((t) => t.id === pane.tab));
   return space ? { space: space.id, tab: pane.tab, name: space.name } : null;
 }
+
+// ---------- system opener per platform ("macos" | "linux" | "windows") ----------
+
+/** [program, args] that opens a local file or folder with its default app, or null when the path
+ * is not absolute for that system. Windows paths start with a drive letter and go to explorer.exe
+ * with backslashes. */
+export function openerArgv(platform, path) {
+  const p = String(path ?? "");
+  if (platform === "windows") return /^[A-Za-z]:[\\/]/.test(p) ? ["explorer.exe", [p.replace(/\//g, "\\").replace(/^([A-Za-z]:)$/, "$1\\")]] : null;
+  if (!p.startsWith("/")) return null;
+  return platform === "linux" ? ["xdg-open", [p]] : ["open", [p]];
+}
+
+// Launch lists, kept byte-identical in drover-files, drover-viewer, drover-open, drover-git and drover-agents.
+// LAUNCH_EXT: what the system opener runs rather than shows. Folders: app and installer bundles.
+const LAUNCH_EXT = new Set(["app", "command", "tool", "terminal", "workflow", "action", "scpt", "scptd", "applescript", "pkg", "mpkg",
+  "dmg", "img", "iso", "jar", "sh", "bash", "zsh", "csh", "ksh", "fish", "py", "rb", "pl", "php", "exe", "bat", "cmd", "com", "msi", "ps1", "vbs",
+  "desktop", "appimage", "run", "bin", "url", "webloc", "inetloc", "fileloc", "prefpane", "saver", "osax", "kext", "plugin", "bundle",
+  "mobileconfig", "dylib", "so"]);
+// WINDOWS_LAUNCH_EXT: what explorer.exe runs too. Only on Windows: elsewhere .js and the rest open in an app.
+const WINDOWS_LAUNCH_EXT = new Set(["lnk", "scr", "hta", "js", "jse", "vbe", "wsf", "wsh", "reg", "cpl", "msc", "msp", "pif", "psm1", "psc1",
+  "application", "appref-ms", "gadget", "inf", "settingcontent-ms", "library-ms", "diagcab", "scf", "rdp", "iqy", "slk", "ade", "adp",
+  "msix", "msixbundle", "appx", "appxbundle", "appinstaller", "msu", "pyw", "pyz", "pyzw",
+  "chm", "ws", "wsc", "sct", "xll", "vhd", "vhdx", "search-ms", "searchconnector-ms", "website",
+  "jnlp", "theme", "themepack", "mht", "xbap"]);
+// Would explorer.exe run this path? The name after the last / or \, with the trailing dots and spaces
+// Windows drops ("a.exe." runs a.exe). A name that is only an extension (".js") counts. A ":" means an
+// NTFS stream ("a.exe:s", "a.lnk::$DATA"), which is refused too.
+function windowsRuns(p) {
+  const b = String(p ?? "").split(/[\\/]/).pop().toLowerCase().replace(/[. ]+$/, ""), i = b.lastIndexOf(".");
+  return b.includes(":") || (i >= 0 && (LAUNCH_EXT.has(b.slice(i + 1)) || WINDOWS_LAUNCH_EXT.has(b.slice(i + 1))));
+}
+/** Why a file would run instead of open (Windows only), else null. */
+export function launchRisk(path, platform) {
+  return platform === "windows" && windowsRuns(path) ? "this file is a script or launcher and would run" : null;
+}
+export const COMMA_PATH = "Explorer can't open paths with a comma. Copy the path instead.";
+/** Why the system opener must not get this path, else null: a launcher, or a comma explorer.exe would split at. */
+export function openerProblem(platform, path) {
+  const risk = launchRisk(path, platform);
+  if (risk) return `Not opened: ${risk}. Copy the path instead.`;
+  return platform === "windows" && String(path ?? "").includes(",") ? COMMA_PATH : null;
+}
+
+/** Did the opener work? explorer.exe exits 1 even when it did, so its code is ignored. */
+export const openerWorked = (platform, code) => platform === "windows" || code === 0;
+
+/** What to say when the opener could not start. */
+export function openerError(platform, error) {
+  const missing = /program not found/i.test(String(error?.message ?? error ?? ""));
+  if (missing && platform === "linux") return "Install xdg-utils to open files";
+  if (missing && platform === "windows") return "explorer.exe was not found";
+  return "Could not open it";
+}

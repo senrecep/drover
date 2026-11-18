@@ -15,14 +15,14 @@ A window 560 wide with a text area of 3 to 12 rows and four target modes: Focuse
 - More than one target needs a second click: the button turns into "Confirm: send to N terminals" for 5 seconds.
 - A target where you have an unfinished line typed shows "Waiting for its draft to clear". The send waits up to 90 seconds.
 - A failed target can be sent again. Targets that already got the text are skipped on the retry.
-- `cmd-enter` sends and Esc closes.
+- `cmd-enter` sends on macOS, `ctrl-enter` on Linux and Windows, and Esc closes.
 
 ## Built from
 
 One mod, `drover-composer`, `"place": "none"`, with a window overlay 560 wide. The item's `keys.json`:
 
 ```json
-{ "global": { "cmd-shift-k": "mod.open:drover-composer" } }
+{ "global": { "cmd-shift-k": "mod.open:drover-composer", "secondary-alt-shift-k": "mod.open:drover-composer" } }
 ```
 
 What it touches:
@@ -40,7 +40,7 @@ What it touches:
 
 ## Done when
 
-- `cmd-shift-k` opens the window with Focused set to the terminal you were in.
-- Typing a line and pressing `cmd-enter` puts it in that terminal and presses Enter.
+- `cmd-shift-k` (`ctrl-alt-shift-k` on Linux and Windows) opens the window with Focused set to the terminal you were in.
+- Typing a line and pressing `cmd-enter` (`ctrl-enter` on Linux and Windows) puts it in that terminal and presses Enter.
 - With two idle agents, Idle agents asks for a confirm and then sends to both.
 - A blocked agent in All agents shows "Skipped: needs you" and gets nothing.

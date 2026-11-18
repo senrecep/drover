@@ -6,10 +6,10 @@
 // answer their question). Nothing typed here is stored: no history, no draft on disk.
 import { View, div, svg } from "gpui-kit";
 import { h_flex, v_flex, TextareaState, Textarea } from "gpui-base";
-import { exec, agents, panes, focused, theme, props, closeOverlay } from "herdr";
+import { exec, agents, panes, focused, theme, props, closeOverlay, window } from "herdr";
 import { TYPE, SPACE, mono, metaColor, button, iconButton, chip } from "./lib/panel-ui.js";
 import {
-  MODES, modeOf, candidates, targetsFor, split, pending, armKey, sendable, sendArgv, outcome, sendLabel, needsConfirm, ARM_MS,
+  MODES, modeOf, candidates, targetsFor, split, pending, armKey, sendable, sendArgv, outcome, sendLabel, needsConfirm, ARM_MS, sendPressed, sendHint,
 } from "./lib/compose.js";
 
 const ICON = (name) => `mods/workspace-chrome/${name}.svg`;
@@ -29,7 +29,8 @@ export default class Composer extends View {
     this.deliveredText = null;
     this.note = "";
     this.text = "";
-    this.input = TextareaState.new({ placeholder: "Message. ⌘↩ sends, Esc closes" });
+    this.platform = window()?.platform ?? "macos";
+    this.input = TextareaState.new({ placeholder: `Message. ${sendHint(this.platform)} sends, Esc closes` });
     this.input.set_auto_grow(3, 12);
     this.input.on("change", (_e, cx) => {
       const next = this.input.value();
@@ -135,7 +136,7 @@ export default class Composer extends View {
   key(e, cx) {
     if (e.key === "escape") { this.dismiss(); cx.stop_propagation(); return; }
     // A held key repeats: only a fresh press may send (or confirm a send to several).
-    if (e.key === "enter" && e.modifiers?.platform) { if (!e.is_held) this.send(cx); cx.stop_propagation(); }
+    if (e.key === "enter" && sendPressed(e.modifiers, window()?.platform ?? this.platform)) { if (!e.is_held) this.send(cx); cx.stop_propagation(); }
   }
 
   // ---------- render ----------
@@ -226,7 +227,7 @@ export default class Composer extends View {
           label: sendLabel(send.length, armed),
           kind: armed ? "danger" : "primary",
           disabled: !ready,
-          tooltip: armed ? "Click again to send" : "⌘↩",
+          tooltip: armed ? "Click again to send" : sendHint(window()?.platform ?? this.platform),
           onClick: (cx) => this.send(cx),
         }, t)));
   }

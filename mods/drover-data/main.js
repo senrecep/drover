@@ -22,7 +22,7 @@ import {
   POLL_MS, MAX_DB_FILES, formatCell, stripControl, filterDbFiles, splitNul, sizeCheckArgs, topLevelArgs, normalizePath,
   listSql, listSqlPlain, viewPlanSql, viewPlanOk, VTAB_REFUSED, infoSql, countSql, pageSql, pageSize, CUT_NOTE, sqliteArgs,
   parseSchema, parseInfo, parseCount, parsePage, sqliteProblem, parseTodo, sortedCards, toggleLine, inlineTokens,
-  lossy, LOSSY_NOTE, realInside,
+  lossy, LOSSY_NOTE, realInside, localToolsNote,
   tableMeta, xinfoSql, parseXinfo, editability, editPageSql, parseEditPage, cellLock, cellPrefill, sqlLiteral,
   insertSql, updateSql, deleteSql, writeScript, writeArgs, writeOutcome, NUL_NOTE, safePath,
   COL_TYPES, RENAME_COLUMN_MIN, RENAME_COLUMN_NOTE, newName, createTableDdl, addColumnDdl, dropTableDdl, renameTableDdl,
@@ -184,6 +184,8 @@ export default class Data extends View {
   loadFiles(cx, force) {
     const { cwd, on } = location(), key = this.key;
     if (!cwd || on) { this.loaded = true; return; }
+    const unsupported = localToolsNote(window()?.platform ?? "macos");
+    if (unsupported) { this.error = unsupported; this.loaded = true; return; }
     if (this.busy) return;
     this.busy = true;
     const seq = ++this.seq;
@@ -718,6 +720,8 @@ export default class Data extends View {
   loadTodo(cx) {
     const { cwd, on } = location(), key = this.key;
     if (!cwd || on) { this.loaded = true; return; }
+    const unsupported = localToolsNote(window()?.platform ?? "macos");
+    if (unsupported) { this.error = unsupported; this.loaded = true; return; }
     if (this.busy) return;
     this.busy = true;
     const seq = ++this.seq;

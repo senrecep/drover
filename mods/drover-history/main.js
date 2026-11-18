@@ -12,6 +12,7 @@ import { TYPE, SPACE, mono, metaColor, panelHeader, iconButton, emptyState } fro
 import {
   MOD, SCOPE_KEY, agentLabel, agentColor, normalizeScope, historyShown, scopeOf, updateCall, queryCall,
   parseOut, statusText, resumePlan, shapeRow, moveSel, presentAgents,
+  pythonCandidates, probeOk, noPythonText, spaceScopeWorks,
 } from "./lib/history.js";
 
 const UI = (name) => `mods/${MOD}/ui/${name}.svg`;
@@ -22,6 +23,7 @@ const BUILDING_GAP = 1500;  // between runs while the index is incomplete
 const IDLE_GAP = 60_000;    // between runs once it is complete
 const DEBOUNCE = 250;
 const LIMIT = 100;
+const platform = () => { try { return window()?.platform ?? "macos"; } catch { return "macos"; } };
 
 export default class extends View {
   init(_props, cx) {
@@ -81,7 +83,8 @@ export default class extends View {
     cx.spawn(async (cx) => {
       let more = false;
       try {
-        const [cmd, args] = updateCall(SCRIPT(), appHome(), BUDGET);
+        if (!(await this.pythonReady())) { this.noPython = true; return; }
+        const [cmd, args] = updateCall(SCRIPT(), appHome(), BUDGET, this.py(), platform());
         const out = parseOut(await exec(cmd, args, { timeout: (BUDGET + 20) * 1000 }));
         if (out.error) this.error = out.error;
         else {
@@ -91,7 +94,7 @@ export default class extends View {
           if (out.processed > 0 || out.removed > 0 || !this.loaded) await this.fetch(cx);
         }
       } catch {
-        // exec rejects when python3 can't start, and also when a run outlives its timeout.
+        // exec rejects when python can't start, and also when a run outlives its timeout.
         if (await this.pythonMissing()) this.noPython = true;
         else this.error = "Indexing run timed out";
       } finally {
@@ -102,9 +105,24 @@ export default class extends View {
     });
   }
 
-  /** Whether python3 can't be started at all (as opposed to a run that timed out). */
+  /** The python runs use: the one a probe found, else the platform's first choice. */
+  py() { return this.python ?? pythonCandidates(platform())[0]; }
+
+  /** Whether python can't be started at all (as opposed to a run that timed out). Keeps the one that runs. */
   async pythonMissing() {
-    try { await exec("python3", ["-I", "-c", ""], { timeout: 10_000 }); return false; } catch { return true; }
+    const p = platform();
+    for (const py of pythonCandidates(p)) {
+      try {
+        if (probeOk(p, await exec(py[0], [...py[1], "-I", "-c", ""], { timeout: 10_000 }))) { this.python = py; return false; }
+      } catch { /* not this one */ }
+    }
+    return true;
+  }
+
+  /** Windows has more than one name for python: pick one before the first run. Elsewhere python3 is run as is. */
+  async pythonReady() {
+    if (this.python || platform() !== "windows") return true;
+    return !(await this.pythonMissing());
   }
 
   queueLoad(cx) {
@@ -125,10 +143,11 @@ export default class extends View {
     this.loading = true;
     cx.notify();
     try {
+      if (!(await this.pythonReady())) { if (n === this.seq) this.noPython = true; return; }
       const [cmd, args] = queryCall(SCRIPT(), appHome(), {
         query: this.query.value(), cwds: scope === "space" ? w.cwds : null, exact: scope === "space" ? w.exact : null,
         limit: LIMIT, agent: this.agent,
-      });
+      }, this.py());
       const out = parseOut(await exec(cmd, args, { timeout: 30_000 }));
       if (n !== this.seq) return;
       if (out.error) { this.error = out.error; return; }
@@ -260,14 +279,15 @@ export default class extends View {
   body(t) {
     const w = this.where(), scope = this.scope(), q = this.query.value().trim();
     const showAll = { id: "hist-show-all", label: "Show all", onClick: (cx) => this.setScope("all", cx) };
-    if (this.noPython) return emptyState({ id: "hist-no-python", tone: "error", icon: UI("history"), title: "python3 not found",
-      body: "History reads sessions with python3. Install it, then Retry.",
+    if (this.noPython) return emptyState({ id: "hist-no-python", tone: "error", icon: UI("history"), ...noPythonText(platform()),
       action: { id: "hist-retry", label: "Retry", onClick: (cx) => { this.noPython = false; this.nextRun = 0; this.load(cx); } } }, t);
     if (this.error) return emptyState({ id: "hist-error", tone: "error", icon: UI("history"), title: "Couldn't read the session index",
       body: String(this.error).split("\n")[0].slice(0, 160),
       action: { id: "hist-retry", label: "Retry", onClick: (cx) => { this.error = null; this.nextRun = 0; this.load(cx); } } }, t);
     if (scope === "space" && w.remote) return emptyState({ id: "hist-remote", icon: UI("history"), title: "This space is on another machine",
       body: "History lists sessions from this computer. Show all to see them.", action: showAll }, t);
+    if (scope === "space" && !spaceScopeWorks(platform())) return emptyState({ id: "hist-space-windows", icon: UI("history"),
+      title: "This space works on macOS and Linux", body: "On Windows, History can't match sessions to a space's folders. Show all to see them.", action: showAll }, t);
     if (!this.rows.length) {
       if (!this.loaded) return emptyState({ id: "hist-loading", icon: UI("history"), title: "Loading sessions…" }, t);
       if (q && !this.hint) return emptyState({ id: "hist-no-match", icon: UI("search"), title: "No matches",

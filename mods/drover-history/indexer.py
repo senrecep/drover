@@ -19,7 +19,6 @@ are looked for in (tests use it); by default it is the user's home.
 
 import argparse
 import errno
-import fcntl
 import glob
 import json
 import os
@@ -29,6 +28,13 @@ import sys
 import time
 import urllib.parse
 from datetime import datetime
+
+try:
+    import fcntl
+    msvcrt = None
+except ImportError:  # Windows
+    fcntl = None
+    import msvcrt
 
 SCHEMA = 2              # bumped when what gets indexed or redacted changes: the index is rebuilt
 MSG_CAP = 4000          # chars kept per message
@@ -413,17 +419,45 @@ def store(db, path, size, mtime, rec):
     db.execute("INSERT INTO text(rowid, title, body) VALUES (?,?,?)", (cur.lastrowid, rec["title"], rec["body"]))
 
 
+def try_lock(fh):
+    """Takes the run lock without waiting: flock, or on Windows a one-byte msvcrt lock. False when
+    another run holds it."""
+    try:
+        if fcntl:
+            fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        else:
+            fh.seek(0)
+            msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+    except OSError as e:
+        busy = (errno.EAGAIN, errno.EACCES, errno.EWOULDBLOCK) + ((errno.EDEADLK,) if not fcntl else ())
+        if e.errno in busy:
+            return False
+        raise
+    return True
+
+
+def unlock(fh):
+    """Releases the run lock try_lock took: flock LOCK_UN, or on Windows the same one-byte msvcrt
+    region. A failure is ignored, as closing the file releases it too."""
+    try:
+        if fcntl:
+            fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+        else:
+            fh.seek(0)
+            msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+    except OSError:
+        pass
+
+
 def update(home, budget, src_home):
     d = data_dir(home)
     os.makedirs(d, exist_ok=True)
     lock = open(os.path.join(d, "index.lock"), "a+")
+    locked = False
     try:
-        try:
-            fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except OSError as e:
-            if e.errno in (errno.EAGAIN, errno.EACCES, errno.EWOULDBLOCK):
-                return {"done": False, "busy": True}
-            raise
+        if not try_lock(lock):
+            return {"done": False, "busy": True}
+        locked = True
         started = time.monotonic()
         db = open_rw(home)
         try:
@@ -472,6 +506,8 @@ def update(home, budget, src_home):
         finally:
             db.close()
     finally:
+        if locked:
+            unlock(lock)
         lock.close()
 
 

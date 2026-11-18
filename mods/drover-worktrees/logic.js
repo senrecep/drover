@@ -83,6 +83,17 @@ export function baseError(base) {
 
 export const worktreesRoot = (main) => `${trimSlash(main)}/.claude/worktrees`;
 
+// Create and Remove on this computer rely on / paths: Create checks symlinks with realpath (not on
+// Windows), and Remove's "an agent is running there" guard matches folders by / path, so on Windows
+// it could miss one. null where they run: macOS, Linux, and any other machine (`on`).
+const WINDOWS_REFUSAL = {
+  create: "Creating a worktree here needs macOS or Linux: the folder checks use / paths and realpath, which Windows does not have.",
+  remove: "Removing a worktree here needs macOS or Linux: the check for agents still working in it matches / paths, which Windows folders don't use.",
+};
+export function windowsRefusal(action, platform, on) {
+  return !on && platform === "windows" ? WINDOWS_REFUSAL[action] : null;
+}
+
 // Where a worktree for `name` goes: <main>/.claude/worktrees/<name>, or null when
 // the name is refused or the result would not sit strictly inside that folder.
 export function worktreePath(main, name) {

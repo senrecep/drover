@@ -87,20 +87,37 @@ export function within(dir, root) {
 
 // ---------- indexer calls ----------
 
-/** exec argv for an update run: low priority, isolated python, no bytecode written. */
-export function updateCall(script, appHome, budget) {
-  return ["nice", ["-n", "10", "python3", "-I", "-B", script, "update", "--home", appHome, "--budget", String(budget)]];
+/** The pythons to try, in order, as [program, args before -I]. Windows: the py launcher, then
+ *  python (python3 there is often only the Store's install stub). */
+export const pythonCandidates = (platform) => (platform === "windows" ? [["py", ["-3", "-X", "utf8"]], ["python", ["-X", "utf8"]]] : [["python3", []]]);
+
+/** Whether a probe's answer means that python runs. Starting is enough on macOS and Linux; the
+ *  Windows Store stub starts and exits 9009, so there the exit code counts. */
+export const probeOk = (platform, r) => platform !== "windows" || r?.code === 0;
+
+/** What the missing-python state says. */
+export const noPythonText = (platform) => (platform === "windows"
+  ? { title: "Python not found", body: "History reads sessions with Python 3 (py or python on PATH). Install it, then Retry." }
+  : { title: "python3 not found", body: "History reads sessions with python3. Install it, then Retry." });
+
+/** "This space" matches folders as POSIX paths (here and in indexer.py), so not on Windows. */
+export const spaceScopeWorks = (platform) => platform !== "windows";
+
+/** exec argv for an update run: low priority (nice, not on Windows), isolated python, no bytecode written. */
+export function updateCall(script, appHome, budget, python = ["python3", []], platform = "macos") {
+  const args = [...python[1], "-I", "-B", script, "update", "--home", appHome, "--budget", String(budget)];
+  return platform === "windows" ? [python[0], args] : ["nice", ["-n", "10", python[0], ...args]];
 }
 
 /** exec argv for the list (empty query) or a search. */
-export function queryCall(script, appHome, { query = "", cwds = null, exact = null, limit = 100, agent = "all" } = {}) {
+export function queryCall(script, appHome, { query = "", cwds = null, exact = null, limit = 100, agent = "all" } = {}, python = ["python3", []]) {
   const q = String(query ?? "").trim();
   // One "--query=<text>" word: a query that starts with "-" is never read as an option.
-  const args = ["-I", "-B", script, ...(q ? ["search", `--query=${q}`] : ["list"]), "--home", appHome, "--limit", String(limit)];
+  const args = [...python[1], "-I", "-B", script, ...(q ? ["search", `--query=${q}`] : ["list"]), "--home", appHome, "--limit", String(limit)];
   for (const c of cwds ?? []) args.push("--cwd", c);
   for (const c of exact ?? []) args.push("--at", c);
   if (AGENT_IDS.includes(agent)) args.push("--agent", agent);
-  return ["python3", args];
+  return [python[0], args];
 }
 
 /** The indexer's JSON answer, or `{ error }` for anything else. */
@@ -218,7 +235,7 @@ export function folderName(cwd, homeDir) {
   if (typeof cwd !== "string" || !cwd) return "?";
   const c = trimSlash(cwd);
   if (homeDir && c === trimSlash(homeDir)) return "~";
-  return c === "/" ? "/" : c.slice(c.lastIndexOf("/") + 1);
+  return c === "/" ? "/" : c.slice(Math.max(c.lastIndexOf("/"), c.lastIndexOf("\\")) + 1);
 }
 
 /** One list row as the view draws it. */

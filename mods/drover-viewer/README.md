@@ -81,14 +81,14 @@ used last acts.
 | `drover-viewer.reload`  | Reload (unsaved edits are kept as a draft)    |
 | `drover-viewer.back`    | Back to the previous file after a link        |
 
-Suggested bindings in `keys.json`:
+Suggested bindings in `keys.json`. `secondary` is Cmd on macOS and Ctrl on Linux and Windows:
 
 ```json
 "mod:drover-viewer": {
-  "cmd-s": "drover-viewer.save",
-  "cmd-e": "drover-viewer.toggle",
-  "cmd-r": "drover-viewer.reload",
-  "cmd-[": "drover-viewer.back"
+  "secondary-s": "drover-viewer.save",
+  "secondary-e": "drover-viewer.toggle",
+  "secondary-r": "drover-viewer.reload",
+  "secondary-[": "drover-viewer.back"
 }
 ```
 
@@ -100,6 +100,23 @@ Suggested bindings in `keys.json`:
   rasterised, so Fit to pane can look soft.
 - Remote files. Files on another machine are read-only, because `writeTextFile` has no machine option.
 - Line jumps in the editor. The editor has no scroll API, so a line jump uses the Lines view.
+
+## Platforms
+
+The viewer reads files with the host and runs a few small tools: `realpath`, `wc`, `test`, `file`, `cp`, `tail`,
+`sed` and `sh`. Files on another machine use that machine's tools, whatever the local system is.
+
+- macOS: everything above works. Open in app runs `open`, and launchers are shown with `open -R` (Reveal in Finder).
+- Linux: everything works. Open in app and Show in file manager use `xdg-open`, and without it the viewer says
+  to install xdg-utils. Show in file manager opens the folder that holds the file.
+- Windows: local paths may start with a drive letter (`C:\` or `C:/`). Open in app and Show in Explorer use
+  `explorer.exe`. More extensions count as launchers there (`.js`, `.lnk`, `.hta`, `.reg` and others), and the exec
+  bit is not checked. Explorer splits its arguments at commas, so a path with a comma is not opened
+  or shown; copy the path instead. Network paths (`\\server\share`) are not opened. The viewer does not
+  resolve symlinks there, so the credential check uses the path as given.
+  Text files need `wc`, large files also need `tail`, `sed` and `sh`, and image previews need `cp`. Git for
+  Windows ships these tools. Put its `usr\bin` folder on PATH. Without them the viewer says so instead of
+  opening the file.
 
 ## License
 

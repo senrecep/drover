@@ -12,8 +12,8 @@ Each row has the process and its command, one 22px chip per listening port, CPU,
 
 ## How it behaves
 
-- A port chip runs `open http://localhost:<port>`.
-- Stop appears when you hover or select a row. It turns into "Confirm stop" for 4 seconds. The second click checks with `lsof -t` that the process still holds the port, then sends `kill -TERM`. It never signals pid 1 or lower.
+- A port chip opens `http://localhost:<port>` with `open` on macOS, `xdg-open` on Linux and `explorer.exe` on Windows.
+- Stop appears when you hover or select a row. It turns into "Confirm stop" for 4 seconds. The second click checks that the process still holds the port (`lsof -t` on macOS and Linux, `netstat -ano` on Windows), then sends `kill -TERM`, or `taskkill /PID <pid>` on Windows. It never signals pid 1 or lower.
 - Up and Down move the cursor, Enter opens the first port of the row, Esc clears the cursor.
 - The list refreshes every 15 seconds while the window is active.
 - The sort choice is kept in the mod's localStorage under `sort`.
@@ -26,6 +26,8 @@ One mod, `drover-ports`, `"place": "none"`, with a dialog overlay of 920 by 640.
 { "global": { "cmd-alt-l": "mod.open:drover-ports" } }
 ```
 
+On Linux and Windows `cmd` is the Super or Windows key, so pick a Ctrl chord there instead, such as `ctrl-alt-shift-l`.
+
 It also works as a block in a layout.
 
 What it touches:
@@ -37,6 +39,8 @@ What it touches:
   - `lsof -a -d cwd -p <pids> -Fn` for their folders;
   - `ps -axo pid=,ppid=` to walk up to a Herdr shell;
   - `open`, `kill -TERM`, and `lsof -t` before a stop.
+  - On Linux the same, with `xdg-open` to open. Without lsof it reads `ss -ltnp`, `ps` and `pwdx` instead.
+  - On Windows, `netstat -ano` and `tasklist /FO CSV /NH`, `explorer.exe` to open, and `taskkill /PID <pid>` after a fresh netstat check. Windows shows no folder, CPU or uptime, and taskkill does not force, so many console programs refuse to close and the page says so.
 - `hc`: `get --json <terminal>` to match a shell to its space.
 - Reads outside its folder: nothing beyond what those programs report.
 - Writes: nothing. The sort choice lives in localStorage.

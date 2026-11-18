@@ -487,6 +487,34 @@ export const move = (at, by, n) => (n ? Math.min(n - 1, Math.max(0, at + by)) : 
  * What each action does for a project, or why it can't: {id, label, enabled, reason}.
  * ctx: {machineReady, activeSpace, platform, installed: {git, files}, agent}
  */
+const REVEAL_PLATFORMS = new Set(["macos", "linux", "windows"]);
+export const COMMA_PATH = "Explorer can't open paths with a comma. Copy the path instead.";
+/** The reveal action's name in the system's own words. */
+export const revealLabel = (platform) =>
+  platform === "linux" ? "Show in file manager" : platform === "windows" ? "Show in Explorer" : "Reveal in Finder";
+
+/**
+ * What a reveal exec came back with (r = result, or the Error it threw): null when it worked, else the message to show.
+ * explorer.exe exits 1 even when it opened the folder, so its code is ignored.
+ */
+export function revealOutcome(platform, r) {
+  if (r instanceof Error || !r) {
+    if (/program not found/i.test(String(r?.message ?? ""))) {
+      if (platform === "linux") return "xdg-open is missing. Install xdg-utils to open files.";
+      if (platform === "windows") return "explorer.exe was not found.";
+    }
+    return "The file manager couldn't show that folder.";
+  }
+  if (r.code !== 0 && platform !== "windows") return "The file manager couldn't show that folder.";
+  return null;
+}
+
+/**
+ * False only for this computer on Windows: listing, scanning and marker checks run POSIX tools
+ * (find, printenv) and take "/" paths, so there they are skipped with a note. Other machines still work.
+ */
+export const listsFolders = (platform, machine) => Boolean(machine) || platform !== "windows";
+
 export function actionsFor(item, ctx) {
   const off = (reason) => ({ enabled: false, reason });
   const on = { enabled: true, reason: null };
@@ -496,7 +524,8 @@ export function actionsFor(item, ctx) {
     : !sameMachine(ctx.activeSpace.machine, item.machine) ? off("The current space is on another machine.")
       : away ? off(away) : on;
   const reveal = item.machine ? off("Only folders on this computer can be shown in the file manager.")
-    : ctx.platform !== "macos" && ctx.platform !== "linux" ? off("Not supported on this system.") : on;
+    : !REVEAL_PLATFORMS.has(ctx.platform) ? off("Not supported on this system.")
+      : ctx.platform === "windows" && String(item.path ?? "").includes(",") ? off(COMMA_PATH) : on;
   const agentName = (ctx.agent ?? DEFAULT_AGENT).join(" ");
   // drover-git takes the machine from props.on, and falls back to the focused space's machine
   // when it is null: a folder on this computer needs a space on this computer to be shown.
@@ -514,7 +543,7 @@ export function actionsFor(item, ctx) {
     { id: "git", label: "Git", ...git },
     { id: "files", label: "Files", ...files },
     { id: "pin", label: item.pinned ? "Unpin" : "Pin", ...on },
-    { id: "reveal", label: ctx.platform === "linux" ? "Show in file manager" : "Reveal in Finder", ...reveal },
+    { id: "reveal", label: revealLabel(ctx.platform), ...reveal },
     { id: "hide", label: "Hide from list", ...(item.pinned ? off("Unpin it first.") : on) },
   ];
 }
@@ -547,6 +576,9 @@ export function commandsFor(id, item, ctx) {
       }
       return [["overlay", { mod: "drover-files", kind: "dialog", width: 900, height: 640, props: { folder: item.path } }]];
     case "reveal":
+      // explorer.exe splits its arguments at commas; a drive root stays "C:\", never "C:".
+      if (ctx.platform === "windows") return String(item.path).includes(",") ? []
+        : [["exec", "explorer.exe", [item.path.replace(/\//g, "\\").replace(/^([A-Za-z]:)$/, "$1\\")]]];
       return ctx.platform === "linux" ? [["exec", "xdg-open", [item.path]]] : [["exec", "open", ["-R", item.path]]];
     default:
       return [];

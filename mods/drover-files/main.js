@@ -12,6 +12,7 @@ import { isIgnored, needsCheck, forget } from "./lib/ignored.js";
 import {
   MOD, PER_FOLDER, TOTAL, SHARED, fresh, absOf, rowLock, flatten, loadedPaths, ancestors, step, sortEntries,
   pickLocation, expandFolder, displayRoot, rel as relOf, filterIndex, lockReason, menuItems, menuHeight, basename, parent, isInside,
+  SEARCH_NEEDS_SH, networkRoot, NETWORK_ROOT,
 } from "./model.js";
 import {
   platform, listFolder, buildIndex, gitMarks, ignoredIn, openCheck, viewerInstalled, openInViewer, openSystem, reveal,
@@ -31,8 +32,9 @@ export default class DroverFiles extends View {
     if (this.role === "menu") return this.initMenu(cx);
     if (this.role === "ask") return this.initAsk(cx);
     this.id = `p${Date.now().toString(36)}${Math.floor(Math.random() * 1e9).toString(36)}`;
-    this.fixed = p.folder ? expandFolder(String(p.folder), home()) : null;
-    this.badFolder = p.folder && !this.fixed ? "props.folder must be an absolute path or start with ~" : null;
+    this.fixed = p.folder ? expandFolder(String(p.folder), home(), platform()) : null;
+    this.badFolder = !p.folder || this.fixed ? null
+      : networkRoot(String(p.folder).trim(), platform(), null) ? NETWORK_ROOT : "props.folder must be an absolute path or start with ~";
     this.pinned = null; this.last = null;
     this.saved = new Map(); this.entries = new Map(); this.folders = new Set(); this.pending = new Set(); this.marks = {};
     this.ignored = new Map();   // folder rel -> Set of git-ignored names in it, refreshed with each listing
@@ -149,6 +151,7 @@ export default class DroverFiles extends View {
       this.pending = new Set(); this.marks = {}; this.ignored = new Map(); this.closePreview(); this.watched = null; this.error = null; this.limited = false;
       this.loading = false; this.index = null;
     } else if (force) this.index = null;
+    if (networkRoot(loc.cwd, platform(), loc.on)) { this.error = NETWORK_ROOT; return; }
     if (!loc.cwd || this.loading) { if (force) this.again = true; return; }
     const context = this.context;
     this.loading = true; this.limited = false; this.again = false;
@@ -405,7 +408,7 @@ export default class DroverFiles extends View {
       if (this.badFolder) state = emptyState({ id: "df-empty", icon: UI("close"), tone: "error", title: "Could not open folder", body: this.badFolder }, t);
       else if (!this.root) state = emptyState({ id: "df-empty", title: "No folder", body: "Focus a terminal to show its folder here." }, t);
       else if (!rows.length && this.error) state = emptyState({ id: "df-empty", icon: UI("close"), tone: "error", title: "Could not read folder", body: this.error }, t);
-      else if (!rows.length && this.query && !reading) state = emptyState({ id: "df-empty", title: "No matches", body: `Nothing matches "${this.query}".`,
+      else if (!rows.length && this.query && !reading) state = emptyState({ id: "df-empty", title: "No matches", body: `Nothing matches "${this.query}".` + (this.index?.error === SEARCH_NEEDS_SH ? ` Loaded folders only. ${SEARCH_NEEDS_SH}` : ""),
         action: { id: "df-empty-clear", label: "Clear filter", onClick: cx => this.clearQuery(cx) } }, t);
       else if (!rows.length && !reading) state = emptyState({ id: "df-empty", title: "Empty folder", body: "This folder has no files." }, t);
       const total = this.filterTotal;
@@ -417,7 +420,7 @@ export default class DroverFiles extends View {
         .when(Boolean(this.error) && rows.length > 0, el => el.child(div().p(8).text_size(TYPE.xs).text_color(t.blocked).child(`Could not read folder: ${this.error}`)))
         .when(Boolean(this.query) && rows.length > 0, el => el.child(div().p(8).text_size(TYPE.xs).text_color(metaColor(t)).child(
           (total > rows.length ? `First ${rows.length} of ${total} matches` : `${total} match${total === 1 ? "" : "es"}`) +
-          (this.indexing ? " · searching the whole folder…" : this.index?.error ? " · loaded folders only" : this.index?.truncated ? " · search limited to 20,000 paths" : ""))))
+          (this.indexing ? " · searching the whole folder…" : this.index?.error ? (this.index.error === SEARCH_NEEDS_SH ? ` · loaded folders only. ${SEARCH_NEEDS_SH}` : " · loaded folders only") : this.index?.truncated ? " · search limited to 20,000 paths" : ""))))
         .when(!this.query && this.limited, el => el.child(div().p(8).text_size(TYPE.xs).text_color(metaColor(t)).child("File list limited to 500 entries per folder and 5,000 total")));
     }
     const st = this.status;

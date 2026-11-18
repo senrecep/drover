@@ -1,5 +1,6 @@
 {
   "global": {
-    "cmd-shift-k": "mod.open:drover-composer"
+    "cmd-shift-k": "mod.open:drover-composer",
+    "secondary-alt-shift-k": "mod.open:drover-composer"
   }
 }

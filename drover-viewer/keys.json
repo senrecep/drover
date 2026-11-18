@@ -1,21 +1,26 @@
 {
   "global": {
-    "cmd-alt-o": "mod.open:drover-open"
+    "cmd-alt-o": "mod.open:drover-open",
+    "secondary-alt-shift-w": "mod.open:drover-open"
   },
   "mod:drover-viewer": {
-    "cmd-s": "drover-viewer.save",
-    "cmd-e": "drover-viewer.toggle",
-    "cmd-r": "drover-viewer.reload",
+    "secondary-s": "drover-viewer.save",
+    "secondary-e": "drover-viewer.toggle",
+    "secondary-r": "drover-viewer.reload",
     "ctrl--": "drover-viewer.back",
-    "cmd-alt-r": "drover-viewer.revert"
+    "cmd-alt-r": "drover-viewer.revert",
+    "ctrl-alt-shift-r": "drover-viewer.revert"
   },
   "mod:drover-open": {
-    "cmd-alt-o": "drover-open.clipboard"
+    "cmd-alt-o": "drover-open.clipboard",
+    "secondary-alt-shift-w": "drover-open.clipboard"
   },
   "mod:drover-files": {
     "cmd-alt-f": "drover-files.focus-filter",
-    "cmd-shift-.": "drover-files.toggle-hidden",
+    "ctrl-alt-shift-f": "drover-files.focus-filter",
+    "secondary-shift-.": "drover-files.toggle-hidden",
     "cmd-alt-p": "drover-files.toggle-follow",
-    "cmd-r": "drover-files.refresh"
+    "ctrl-alt-shift-p": "drover-files.toggle-follow",
+    "secondary-r": "drover-files.refresh"
   }
 }

@@ -31,9 +31,9 @@ The tree (drover-files) follows the focused pane's folder, dims git-ignored name
 
 Keys from this item's `keys.json`:
 
-- `cmd-alt-o` opens the chooser on the clipboard, and reads the clipboard again while it is open.
-- In the viewer: `cmd-s` save, `cmd-e` next view, `cmd-r` reload, `ctrl--` back, `cmd-alt-r` revert.
-- In the tree: `cmd-alt-f` filter, `cmd-shift-.` hide or show `.git`, `node_modules` and `.DS_Store`, `cmd-alt-p` follow focus or not, `cmd-r` refresh.
+- `cmd-alt-o` (`ctrl-alt-shift-w` on Linux and Windows, and also on macOS as `cmd-alt-shift-w`) opens the chooser on the clipboard, and reads the clipboard again while it is open.
+- In the viewer: `secondary-s` save, `secondary-e` next view, `secondary-r` reload, `ctrl--` back, `cmd-alt-r` revert (`ctrl-alt-shift-r` on Linux and Windows). `secondary` is Cmd on macOS and Ctrl on Linux and Windows.
+- In the tree: `cmd-alt-f` filter, `secondary-shift-.` hide or show `.git`, `node_modules` and `.DS_Store`, `cmd-alt-p` follow focus or not, `secondary-r` refresh. On Linux and Windows the filter and follow keys are `ctrl-alt-shift-f` and `ctrl-alt-shift-p`.
 
 ## Built from
 
@@ -62,12 +62,13 @@ What it touches:
 - The editor has no scroll API, so a jump to a line uses the Lines view.
 - The credential list covers `.env*`, `auth.json`, `credentials`, `*.sqlite`, `*.db`, `~/.ssh`, `.aws`, `.netrc`, docker and kube config. It is checked before reading and again after symlinks are resolved.
 - Open with system app refuses scripts, app bundles and executables, since opening them would run them.
-- Move to Trash needs `/usr/bin/trash` from macOS 15 or later. Without it the item is hidden.
+- Move to Trash needs `/usr/bin/trash` from macOS 15 or later, and without it the item is hidden. Linux uses `gio trash` or `trash-put`, and says what to install when both are missing. Windows sends the item to the Recycle Bin through PowerShell, with the path passed as data. Windows would delete an item for good when it can't keep it, so in those cases the menu says it can't move the item to the Recycle Bin and leaves it where it is: on a network share or a removable drive, when that drive's Recycle Bin is set to delete files at once, when the item is at least as big as the Recycle Bin, or when the Recycle Bin settings can't be read. Counting a large folder first takes a moment.
+- On Windows the viewer reads files with `wc`, `tail`, `sed`, `sh` and `cp`, which come with Git for Windows in its `usr\bin` folder. Without them on PATH it opens nothing and says what it needs. The chooser has no editor rows on Windows, and on Linux it finds VS Code, Cursor, Zed, Windsurf, Sublime Text and VSCodium through `which`. Show in file manager on Linux opens the folder without selecting the file.
 
 ## Done when
 
-- Opening a `.md` file shows the preview, and `cmd-e` switches to Source.
-- Editing and pressing `cmd-s` saves. Changing the file elsewhere first makes Save refuse and show the three choices.
+- Opening a `.md` file shows the preview, and `secondary-e` switches to Source.
+- Editing and pressing `secondary-s` saves. Changing the file elsewhere first makes Save refuse and show the three choices.
 - A 5 MiB log opens in the Lines view, and Go to line jumps there.
 - A `.env` file shows the refusal card.
 - `cmd-alt-o` with `src/a.js:12` on the clipboard offers Open in viewer, and the viewer opens on line 12.

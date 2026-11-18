@@ -15,12 +15,12 @@ import { View, div } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import {
   run, props, focused, panes, theme, notify, exec, hc, appHome, nextCommand,
-  openOverlay, closeOverlay, readTextFile, writeTextFile,
+  openOverlay, closeOverlay, readTextFile, writeTextFile, window,
 } from "herdr";
 import * as fs from "fs/promises";
 import {
   parseRpc, findTabRoot, normalise, leaves, countPanes, toShape, describe, PRESETS,
-  equalizeOps, nextSplit, resizePlan, summary, cleanName, readStore, writeStore, upsert, rename, remove,
+  equalizeOps, nextSplit, resizePlan, summary, cleanName, readStore, writeStore, upsert, rename, remove, missingTool,
 } from "./logic.js";
 
 const MOD = "drover-arrange";
@@ -41,7 +41,12 @@ function targetTab() {
 }
 
 async function readLive(tab) {
-  const r = await exec("sh", ["-c", 'command -v hc >/dev/null || PATH="$HOME/.local/bin:$PATH"; printf "%s\\n" "$1" | hc connect', "sh", DOC_GET], { timeout: 10000 });
+  let r;
+  try {
+    r = await exec("sh", ["-c", 'command -v hc >/dev/null || PATH="$HOME/.local/bin:$PATH"; printf "%s\\n" "$1" | hc connect', "sh", DOC_GET], { timeout: 10000 });
+  } catch (e) {
+    throw new Error(missingTool(e, "sh", window()?.platform ?? "macos") ?? String(e?.message ?? e));
+  }
   const root = findTabRoot(parseRpc(r.stdout)?.value, tab);
   if (!root) throw new Error("Couldn't find this tab in herdr-core's layout.");
   const live = normalise(root);

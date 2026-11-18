@@ -39,6 +39,7 @@ What it touches:
 
 ## Watch out
 
+- Git and Herdr's `hc` must be on PATH; the panel says so when one is missing. On Windows the turns are read with `py -3` (or `python3`), and line counts for new files need `stat` from Git for Windows' `usr\bin` folder.
 - The turns come from Claude Code transcripts only. Other agents still get the Changes list and the drafts, but no Agent turns.
 - On a space on another machine, git runs there. Agent turns shows only the note "Remote space: the agent's transcript is read on this computer only."
 

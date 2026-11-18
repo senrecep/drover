@@ -5,17 +5,32 @@
     "alt-shift-s": "drover-arrange.save",
     "alt-shift-g": "drover-arrange.grid",
     "cmd-k": "mod.open:drover-goto",
+    "ctrl-shift-k": "mod.open:drover-goto",
     "alt-shift-i": "mod.open:drover-dispatch",
     "cmd-shift-k": "mod.open:drover-composer",
+    "secondary-alt-shift-k": "mod.open:drover-composer",
     "cmd-shift-o": "mod.open:drover-projects",
+    "secondary-alt-shift-o": "mod.open:drover-projects",
     "cmd-alt-o": "mod.open:drover-open",
+    "secondary-alt-shift-w": "mod.open:drover-open",
     "cmd-alt-e": "drover-tabs.open-in",
+    "secondary-alt-shift-i": "drover-tabs.open-in",
     "cmd-shift-g": "mod.open:drover-git",
-    "cmd-shift-j": "drover-tabs.panels"
+    "secondary-alt-shift-g": "mod.open:drover-git",
+    "cmd-shift-j": "drover-tabs.panels",
+    "secondary-alt-shift-j": "drover-tabs.panels"
   },
   "layout:drover": {
     "cmd-shift-b": "layout.toggle:panel",
+    "secondary-alt-shift-b": "layout.toggle:panel",
     "cmd-shift-v": {
+      "command": "layout.select",
+      "args": {
+        "stack": "panel-body",
+        "child": "drover-review"
+      }
+    },
+    "secondary-alt-shift-v": {
       "command": "layout.select",
       "args": {
         "stack": "panel-body",
@@ -29,7 +44,21 @@
         "child": "drover-files"
       }
     },
+    "secondary-alt-shift-e": {
+      "command": "layout.select",
+      "args": {
+        "stack": "panel-body",
+        "child": "drover-files"
+      }
+    },
     "cmd-alt-y": {
+      "command": "layout.select",
+      "args": {
+        "stack": "panel-body",
+        "child": "drover-history"
+      }
+    },
+    "secondary-alt-shift-y": {
       "command": "layout.select",
       "args": {
         "stack": "panel-body",
@@ -42,46 +71,57 @@
         "stack": "panel-body",
         "child": "drover-sim"
       }
+    },
+    "secondary-alt-shift-s": {
+      "command": "layout.select",
+      "args": {
+        "stack": "panel-body",
+        "child": "drover-sim"
+      }
     }
   },
   "mod:drover-inbox": {
-    "cmd-w": "overlay.close",
+    "secondary-w": "overlay.close",
     "ctrl-alt-shift-x": "overlay.close",
-    "cmd-shift-w": "overlay.close",
+    "secondary-shift-w": "overlay.close",
     "ctrl-alt-x": "overlay.close"
   },
   "mod:drover-agent-tree": {
-    "cmd-w": "overlay.close",
+    "secondary-w": "overlay.close",
     "ctrl-alt-shift-x": "overlay.close",
-    "cmd-shift-w": "overlay.close",
+    "secondary-shift-w": "overlay.close",
     "ctrl-alt-x": "overlay.close"
   },
   "mod:drover-pane": {
-    "cmd-w": "overlay.close",
+    "secondary-w": "overlay.close",
     "ctrl-alt-shift-x": "overlay.close",
-    "cmd-shift-w": "overlay.close",
+    "secondary-shift-w": "overlay.close",
     "ctrl-alt-x": "overlay.close"
   },
   "mod:drover-actions": {
-    "cmd-w": "overlay.close",
+    "secondary-w": "overlay.close",
     "ctrl-alt-shift-x": "overlay.close",
-    "cmd-shift-w": "overlay.close",
+    "secondary-shift-w": "overlay.close",
     "ctrl-alt-x": "overlay.close"
   },
   "mod:drover-files": {
     "cmd-alt-f": "drover-files.focus-filter",
-    "cmd-shift-.": "drover-files.toggle-hidden",
+    "ctrl-alt-shift-f": "drover-files.focus-filter",
+    "secondary-shift-.": "drover-files.toggle-hidden",
     "cmd-alt-p": "drover-files.toggle-follow",
-    "cmd-r": "drover-files.refresh"
+    "ctrl-alt-shift-p": "drover-files.toggle-follow",
+    "secondary-r": "drover-files.refresh"
   },
   "mod:drover-viewer": {
-    "cmd-s": "drover-viewer.save",
-    "cmd-e": "drover-viewer.toggle",
-    "cmd-r": "drover-viewer.reload",
+    "secondary-s": "drover-viewer.save",
+    "secondary-e": "drover-viewer.toggle",
+    "secondary-r": "drover-viewer.reload",
     "ctrl--": "drover-viewer.back",
-    "cmd-alt-r": "drover-viewer.revert"
+    "cmd-alt-r": "drover-viewer.revert",
+    "ctrl-alt-shift-r": "drover-viewer.revert"
   },
   "mod:drover-open": {
-    "cmd-alt-o": "drover-open.clipboard"
+    "cmd-alt-o": "drover-open.clipboard",
+    "secondary-alt-shift-w": "drover-open.clipboard"
   }
 }

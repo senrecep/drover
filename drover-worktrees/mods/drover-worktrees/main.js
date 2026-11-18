@@ -7,6 +7,7 @@ import { hc, home, spaces, panes, agents, machines, theme, window, layout, run, 
 import {
   nameError, baseError, worktreePath, worktreesRoot, addArgs, landingError, removeBlockers, removeArgs, prFor,
   spaceFolder, spaceFor, agentsOn, repoKey, tilde, ago, saveAction, deleteAction, actionError, visibleIn, parseWorktrees,
+  windowsRefusal,
 } from "./logic.js";
 import { gitRead, gitWrite, repoOf, realPathOf, readRepo, readWorktree, listPrs } from "./git.js";
 
@@ -192,6 +193,8 @@ export default class Worktrees extends View {
   }
 
   remove(repo, wt, cx) {
+    const refused = windowsRefusal("remove", window()?.platform ?? "macos", repo.machine);
+    if (refused) { this.messages.set(repo.key, refused); cx.notify(); return; }
     const k = `${repo.key}\0${wt.path}`;
     if ((this.confirm.get(k) ?? 0) < Date.now()) {
       this.confirm.set(k, Date.now() + CONFIRM_MS);
@@ -257,6 +260,8 @@ export default class Worktrees extends View {
     if (!repo) return this.closeForm(cx);
     const name = this.inBranch.value().trim();
     const base = this.inBase.value().trim() || repo.defaultBranch;
+    const refused = windowsRefusal("create", window()?.platform ?? "macos", repo.machine);
+    if (refused) { this.formError = refused; cx.notify(); return; }
     const err = nameError(name) ?? baseError(base);
     const path = err ? null : worktreePath(repo.main, name);
     if (err || !path) { this.formError = err ?? "That name would leave the worktrees folder."; cx.notify(); return; }

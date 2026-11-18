@@ -36,7 +36,7 @@ Prices for the cost estimate live in `config.json` in the mod folder, in USD per
 What it touches:
 
 - Network: none.
-- Programs: `python3 -I probe.py` for all reading, `git rev-parse` to find the focused folder's repository root, and `open -t <file>` for Open in editor.
+- Programs: `python3 -I probe.py` for all reading, `git rev-parse` to find the focused folder's repository root, and for Open in editor `open -t <file>` on macOS, `xdg-open <file>` on Linux and `explorer.exe <file>` on Windows. On Windows the probe needs a `python3` on PATH, which a python.org install does not add.
 - `hc`: none.
 - Reads outside its folder, through `probe.py` only: the agents' config folders in your home folder (such as `~/.claude`, `~/.codex`, `~/.gemini`, `~/.config/opencode`, `~/.cursor`), the focused folder's agent files (`CLAUDE.md`, `AGENTS.md`, `.mcp.json` and the like), and Claude Code and Codex transcripts for token counts. Only names, descriptions, paths and sizes are taken from configs. Env blocks, headers, arguments, tokens and keys are dropped when the file is parsed. Credential files and databases are refused.
 - Writes: `.cost-cache-<agent>.json` beside `probe.py`, and `usage-store.json` and `tokens-cache.json` in `data/drover-agents/` under the Herdr config folder. They hold hashed keys and numbers, no paths or text.

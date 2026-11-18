@@ -11,7 +11,7 @@ import { tilde, parent } from "./lib/paths.js";
 import {
   IMAGE_MAX, WINDOW_LINES, LINK_KEY, normalizeTarget, nameOf, extOf, kindOf, languageOf, redactInfo, parseCount, readOnlyReason,
   splitLines, lineWindow, parseLineInput, classifyLink, displayUrl, linkMode, draftName, cachePrefix, cacheName, draftOffer, makeDraft,
-  formatBytes, ago, saveErrorKind, shortError, lineTotal, launchRisk,
+  formatBytes, ago, saveErrorKind, shortError, lineTotal, launchRisk, revealLabel, revealArgv, openArgv, openerWorked, openError, readError, explorerProblem,
 } from "./model.js";
 import { lineDiff } from "./diff.js";
 import { TYPE, mono, metaColor, panelHeader, emptyState, button, iconButton } from "./lib/panel-ui.js";
@@ -25,10 +25,9 @@ const MODE_LABEL = { preview: "Preview", source: "Source", edit: "Editor", lines
 let active = null;
 const claims = new Map();
 const dataDir = () => `${appHome()}/data/${MOD}`;
-const isExecutable = async (p) => (await exec("test", ["-x", p], { timeout: 5000 }).catch(() => ({ code: 1 }))).code === 0;
-const revealLabel = () => (window()?.platform === "macos" ? "Reveal in Finder" : "Show in file manager");
-const revealArgv = (p) => (window()?.platform === "macos" ? ["open", ["-R", "--", p]] : [window()?.platform === "windows" ? "explorer" : "xdg-open", [parent(p)]]);
-const opener = () => { const p = window()?.platform; return p === "macos" ? "open" : p === "windows" ? "explorer" : "xdg-open"; };
+const platform = () => window()?.platform ?? "macos";
+// Windows has no exec bit: there, launch risk goes by the extension alone.
+const isExecutable = async (p) => platform() !== "windows" && (await exec("test", ["-x", p], { timeout: 5000 }).catch(() => ({ code: 1 }))).code === 0;
 const visible = (s) => stripControl(s).replace(/\t/g, "    ");
 
 export default class Viewer extends View {
@@ -42,7 +41,7 @@ export default class Viewer extends View {
     this.goto.on("submit", (_e, cx) => { this.gotoLine(this.goto.value(), cx); cx.notify(); });
     active = this.id;
     this.claim();
-    this.open(normalizeTarget(props(), home()), cx);
+    this.open(normalizeTarget(props(), home(), platform()), cx);
     cx.timer.every(1500, (cx) => { if (this.draftDue) cx.spawn(async (cx) => { await this.flushDraft(); cx.notify(); }); });
     cx.spawn(async (cx) => {
       try { this.chooser = await fs.exists(`${appHome()}/mods/drover-open/main.js`); } catch (e) { this.chooser = false; }
@@ -113,7 +112,8 @@ export default class Viewer extends View {
       let why = denyReason(t.path);
       if (why) { this.status = "denied"; this.message = why; return; }
       let real = t.path;
-      try {
+      // Git for Windows' realpath answers in its own /c/... form, which the host can't read: keep the lexical path there.
+      if (on || platform() !== "windows") try {
         const r = await exec("realpath", [t.path], { on, timeout: 5000 });
         const out = r.code === 0 ? r.stdout.trim() : "";
         if (out.startsWith("/") && !out.includes("\n")) real = out;
@@ -157,7 +157,7 @@ export default class Viewer extends View {
       else this.setMode("edit");
       await this.readDraft(gen);
     } catch (e) {
-      if (this.live(gen)) { this.status = "error"; this.message = shortError(e); }
+      if (this.live(gen)) { this.status = "error"; this.message = readError(e, platform(), on); }
     }
   }
 
@@ -285,7 +285,7 @@ export default class Viewer extends View {
     if (this.status === "large") {
       if (this.win && n >= this.win.start && n <= this.win.end) { this.focusLine = n; this.scrollPending = n - this.win.start; return; }
       const gen = this.gen;
-      cx.spawn(async (cx) => { try { await this.loadWindow(gen, n); } catch (e) { this.error = shortError(e); } cx.notify(); });
+      cx.spawn(async (cx) => { try { await this.loadWindow(gen, n); } catch (e) { this.error = readError(e, platform(), this.target.on); } cx.notify(); });
       return;
     }
     if (!this.modes.includes("lines")) { this.note = "Line view isn't available for this file"; return; }
@@ -298,7 +298,7 @@ export default class Viewer extends View {
     const start = dir < 0 ? Math.max(1, this.win.start - WINDOW_LINES) : this.win.end + 1;
     if (start === this.win.start || start > this.total) return;
     const gen = this.gen;
-    cx.spawn(async (cx) => { try { await this.loadWindow(gen, start, start); } catch (e) { this.error = shortError(e); } cx.notify(); });
+    cx.spawn(async (cx) => { try { await this.loadWindow(gen, start, start); } catch (e) { this.error = readError(e, platform(), this.target.on); } cx.notify(); });
   }
 
   async readDraft(gen) {
@@ -338,7 +338,7 @@ export default class Viewer extends View {
       this.shown = redactInfo(text).text;
       if (this.mode === "preview" || this.mode === "lines") this.setMode(this.mode);
       await this.deleteDraft();
-      if (this.status === "image") { try { await this.copyImage(); } catch (e) { this.error = shortError(e); } }
+      if (this.status === "image") { try { await this.copyImage(); } catch (e) { this.error = readError(e, platform(), null); } }
     } catch (e) {
       const kind = saveErrorKind(e);
       if (kind === "conflict") { this.conflict = { kept: false }; this.draftDue = true; }
@@ -438,25 +438,28 @@ export default class Viewer extends View {
   }
 
   // Why "Open in app" would run the file instead of showing it (scripts, launchers, executables), else null.
-  launchRisk() { return this.real ? launchRisk(this.real, { dir: this.status === "folder", executable: Boolean(this.exe) }) : null; }
-  systemLabel() { return this.launchRisk() ? revealLabel() : "Open in app"; }
+  launchRisk() { return this.real ? launchRisk(this.real, { dir: this.status === "folder", executable: Boolean(this.exe), platform: platform() }) : null; }
+  systemLabel() { return this.launchRisk() ? revealLabel(platform()) : "Open in app"; }
 
   openSystem(cx) {
     const p = this.real;
     if (!p || this.target.on || denyReason(p)) return;
+    const os = platform();
+    const comma = explorerProblem(os, p);
+    if (comma) { this.error = comma; cx.notify(); return; }
     cx.spawn(async (cx) => {
       try {
         // The exec bit is read again at click time: it may have changed since the file loaded.
         if (this.status !== "folder") this.exe = await isExecutable(p);
         if (this.launchRisk()) {
-          const r = await exec(...revealArgv(p), { timeout: 10000 });
-          if (r.code !== 0) this.error = "The system couldn't show this file";
+          const r = await exec(...revealArgv(os, p, this.status === "folder"), { timeout: 10000 });
+          if (!openerWorked(os, r.code)) this.error = "The system couldn't show this file";
           else this.note = `Not opened (${this.launchRisk()}): shown in the file manager instead`;
         } else {
-          const r = await exec(opener(), [p], { timeout: 10000 });
-          if (r.code !== 0) this.error = "The system couldn't open this file";
+          const r = await exec(...openArgv(os, p), { timeout: 10000 });
+          if (!openerWorked(os, r.code)) this.error = "The system couldn't open this file";
         }
-      } catch (e) { this.error = "The system couldn't open this file"; }
+      } catch (e) { this.error = openError(e, os); }
       cx.notify();
     });
   }

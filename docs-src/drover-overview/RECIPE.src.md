@@ -32,7 +32,8 @@ What it touches:
 - Programs, on each machine, with a 4 second timeout:
   - `uname -s` once;
   - macOS: `sysctl -n hw.memsize hw.ncpu`, `ps -A -o %cpu=`, `vm_stat`, and `lsof +c 0 -nP -iTCP -sTCP:LISTEN` for ports;
-  - Linux: `cat /proc/stat /proc/meminfo /proc/loadavg`, `nvidia-smi` for the GPU, and `ss -ltnpH` for ports.
+  - Linux: `cat /proc/stat /proc/meminfo /proc/loadavg`, `nvidia-smi` for the GPU, and `ss -ltnp` for ports, or lsof when ss is missing;
+  - Windows, this computer only: `netstat -ano` and `tasklist /FO CSV /NH` for listening ports. There is no CPU, memory or GPU reading, and the card says so.
 - `hc`: `label <agent> snoozed=<time>` and `settled=<time>:<turn>`, and `send --force -- <agent> <text>` for a reply.
 - Reads outside its folder: nothing beyond what those programs report.
 - Writes: the two labels above on the agent's terminal. Nothing on disk.

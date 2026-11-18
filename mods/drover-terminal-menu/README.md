@@ -31,6 +31,13 @@ menu's own items when switched.
   the clicked one first. If the right-click itself clears the selection, there is nothing to copy.
 - At most 4096 characters are passed on; control characters are dropped.
 
+## Platforms
+
+The menus work the same on macOS, Linux and Windows. The space menu asks `git` whether a space is a
+worktree, so on a computer without git on PATH its worktree items do not show. When `keys.json`
+binds a command twice, once for macOS (`cmd-d`) and once for Linux and Windows (`ctrl-shift-d`),
+the menu shows the one for the platform it runs on. A `secondary-...` binding fits all three.
+
 ## License
 
 `main.js` derives from Herdr's `menu` mod, Apache License 2.0 (`LICENSE-APACHE`, see `NOTICE`).

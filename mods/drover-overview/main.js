@@ -75,7 +75,7 @@ export default class Overview extends View {
 
   host(name) {
     const k = key(name);
-    if (!this.hosts.has(k)) this.hosts.set(k, new Host(name));
+    if (!this.hosts.has(k)) this.hosts.set(k, new Host(name, window()?.platform ?? "macos"));
     return this.hosts.get(k);
   }
 
@@ -101,7 +101,7 @@ export default class Overview extends View {
     const r = (v) => (v == null ? "-" : Math.round(v));
     return [...this.hosts].map(([k, h]) => {
       const d = h.data;
-      return `${k}|${r(d.cpu)}|${r(d.mem)}|${r(d.gpu)}|${r(d.vram)}|${(d.ports ?? []).map((p) => `${p.port}${p.name}`).join(",")}`;
+      return `${k}|${r(d.cpu)}|${r(d.mem)}|${r(d.gpu)}|${r(d.vram)}|${(d.ports ?? []).map((p) => `${p.port}${p.name}`).join(",")}|${h.note ?? ""}`;
     }).join(";");
   }
 
@@ -345,7 +345,7 @@ export default class Overview extends View {
   hostCard(t, m, count, cpuBusy) {
     const k = key(m.name);
     const open = !this.folded.has(k);
-    const d = this.hosts.get(k)?.data ?? {};
+    const d = this.hosts.get(k)?.data ?? {}, note = this.hosts.get(k)?.note;
     const conn = m.name == null || m.layout === "ready" ? t.ansi2 : m.layout === "loading" ? t.ansi3 : t.ansi1;
     const meters = [["CPU", d.cpu], ["MEM", d.mem], ["GPU", d.gpu], ["VRAM", d.vram]].filter(([label, v]) => v != null && (label !== "CPU" || cpuBusy));
     const ports = d.ports ?? [];
@@ -359,6 +359,7 @@ export default class Overview extends View {
         .child(m.name != null && m.layout === "unavailable" ? "unavailable" : `${count} agent${count === 1 ? "" : "s"}`))
       .when(open, (el) => el
         .children(meters.map(([label, v]) => this.meter(t, label, v)))
+        .when(Boolean(note), (el) => el.child(div().text_size(TYPE.xs).text_color(metaColor(t)).child(note)))
         .when(ports.length > 0, (el) => el.child(h_flex().flex_wrap().gap(6).pt(2)
           .children(ports.slice(0, MAX_PORTS).map((p) => mono(div().max_w(272).truncate().px(6).h(20).flex().items_center().rounded(4)
             .border(1).border_color(t.border).text_size(TYPE.xs).text_color(metaColor(t))

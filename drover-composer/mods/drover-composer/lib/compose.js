@@ -105,3 +105,7 @@ export function sendLabel(n, armed = false) {
 /** More than one target asks twice: the first click arms, a second within the window sends. */
 export const needsConfirm = (n) => n > 1;
 export const ARM_MS = 5000;
+
+// The send chord: Cmd+Enter on macOS, Ctrl+Enter on Linux and Windows (`platform` there is Super or Win).
+export const sendPressed = (mods, platform) => Boolean(platform === "macos" ? mods?.platform : mods?.control);
+export const sendHint = (platform) => (platform === "macos" ? "⌘↩" : "Ctrl+Enter");

@@ -8,7 +8,7 @@ import {
   parseStatus, parseLocalBranches, parseRemoteBranches, parseRemoteNames, recentBranches, defaultBranch,
   parseWorktrees, parseRepo, inProgressOp, OP_REFS, parseAheadBehind,
   statusArgs, localArgs, remoteArgs, reflogArgs, repoArgs, worktreeArgs, symrefArgs, incomingArgs, isAncestorArgs,
-  aheadBehindArgs, checkRefArgs,
+  aheadBehindArgs, checkRefArgs, openerArgv, openerWorked, openerError, openerProblem,
 } from "./logic.js";
 import { parseRemoteUrls, pickRemote, parseRemote } from "./forges/index.js";
 
@@ -28,7 +28,12 @@ export async function call(kind, argv, { cwd, on, timeout } = {}) {
   } catch (e) {
     const msg = String(e?.message ?? e);
     const timedOut = /time ?out|timed out/i.test(msg);
-    return { ok: false, code: -1, out: "", err: timedOut ? "Auth/network timeout: try the command in a terminal" : `Could not run ${argv[0] === "env" ? "git" : argv[0]}`, timedOut };
+    // Network calls go through env. Windows has no env unless Git for Windows' usr\bin is on PATH.
+    const noEnv = argv[0] === "env" && /program not found/i.test(msg);
+    const err = timedOut ? "Auth/network timeout: try the command in a terminal"
+      : noEnv ? "Could not run git: env is not on PATH. On Windows, add Git for Windows' usr\\bin to PATH"
+      : `Could not run ${argv[0] === "env" ? "git" : argv[0]}`;
+    return { ok: false, code: -1, out: "", err, timedOut };
   }
   const code = r?.code ?? -1;
   return { ok: code === 0, code, out: r?.stdout ?? "", err: code === 0 ? "" : gitProblem(r?.stderr || r?.stdout || `exit ${code}`, redact) };
@@ -127,17 +132,22 @@ export async function compare(top, on, a, b) {
   return r.ok ? parseAheadBehind(r.out) : null;
 }
 
-/** Opens a local file or folder with the system's default app. Credential files are refused. */
+/**
+ * Opens a local file or folder with the system's default app. Credential files are refused.
+ * On Windows launchers and paths with a comma are refused too; `copy` then holds the path to offer.
+ */
 export async function openLocal(path, platform = "macos") {
   const p = String(path ?? "");
-  if (!p.startsWith("/") || p.includes("\0") || isDenied(p)) return { ok: false, err: "Refused: not a file this view opens" };
-  const opener = platform === "macos" ? "open" : platform === "linux" ? "xdg-open" : null;
-  if (!opener) return { ok: false, err: "No default opener on this system" };
+  const argv = p.includes("\0") || isDenied(p) ? null : openerArgv(platform, p);
+  if (!argv) return { ok: false, err: "Refused: not a file this view opens" };
+  const problem = openerProblem(platform, p);
+  if (problem) return { ok: false, err: problem, copy: p };
   try {
-    const r = await exec(opener, [p], { timeout: 10000 });
-    return { ok: r.code === 0, err: r.code === 0 ? "" : "Could not open it" };
-  } catch {
-    return { ok: false, err: "Could not open it" };
+    const r = await exec(argv[0], argv[1], { timeout: 10000 });
+    const ok = openerWorked(platform, r.code);
+    return { ok, err: ok ? "" : "Could not open it" };
+  } catch (e) {
+    return { ok: false, err: openerError(platform, e) };
   }
 }
 

@@ -1,5 +1,5 @@
 // Editors the chooser can open a folder or file in, and which of them are installed.
-// Pure except detect(), which takes the stat function so tests can fake it. macOS only.
+// Pure except detect() and detectCli(), which take their probe so tests can fake it. macOS and Linux.
 
 // { id, name }: name is the app bundle's name without ".app" (what `open -a` takes).
 export const EDITORS = Object.freeze([
@@ -55,6 +55,36 @@ export async function detect(isDir, home, platform) {
   return out;
 }
 
+// Linux: editors started by their command-line launcher, found on PATH with one `which` (argv, no shell).
+// Only launchers that hand the path to the editor and return. Windows gets none: its usual launchers
+// (code.cmd, cursor.cmd, ...) are batch files, which would pass the path through cmd.exe.
+export const EDITOR_CLIS = Object.freeze({
+  vscode: Object.freeze(["code"]), cursor: Object.freeze(["cursor"]), zed: Object.freeze(["zed", "zeditor"]),
+  windsurf: Object.freeze(["windsurf"]), sublime: Object.freeze(["subl"]), vscodium: Object.freeze(["codium"]),
+});
+/** Platforms with editor rows. */
+export const editorPlatform = (platform) => platform === "macos" || platform === "linux";
+/** argv that asks `which` for every launcher at once (it prints the ones it finds). */
+export const whichArgv = () => ["which", Object.values(EDITOR_CLIS).flat()];
+/** Launcher names found, from `which` output: one path per line, matched by its last part. Nothing under
+ *  sbin counts: no editor lives there, and /usr/sbin/zed is the ZFS event daemon. */
+export const whichHits = (stdout) => new Set(String(stdout ?? "").split("\n").map((l) => l.trim())
+  .filter((l) => !/\/sbin\//.test(l)).map((l) => l.split("/").pop()).filter(Boolean));
+
+// -> [{ id, name, cli }] of editors whose launcher `has(cli)` finds, table order. Linux only.
+export async function detectCli(has, platform) {
+  if (platform !== "linux") return [];
+  const out = [];
+  for (const e of EDITORS) {
+    for (const cli of EDITOR_CLIS[e.id] || []) {
+      let hit = false;
+      try { hit = Boolean(await has(cli)); } catch (err) { hit = false; }
+      if (hit) { out.push(Object.freeze({ ...e, cli })); break; }
+    }
+  }
+  return out;
+}
+
 // Mods may only stat paths inside home, so /Applications is probed by listing it instead.
 // listingProbe(list) returns an isDir-style probe for detect(): it lists each parent folder once
 // (list(dir) -> Set of entry names; a failure counts as empty) and answers by membership.
@@ -91,8 +121,15 @@ export function editorCache(ttl = EDITOR_TTL) {
 }
 
 // argv that opens an absolute local path in an editor: no shell, the path is never a flag.
-export function editorOpenArgv(name, path) {
-  if (!editorByName(name)) throw new Error("unknown editor");
+// macOS: `open -a <App> <path>`. Linux: `<cli> <path>`, cli being one of that editor's launchers.
+export function editorOpenArgv(name, path, { platform = "macos", cli } = {}) {
+  const e = editorByName(name);
+  if (!e) throw new Error("unknown editor");
   if (typeof path !== "string" || !path.startsWith("/") || path.includes("\0")) throw new Error("not an absolute path");
+  if (platform === "linux") {
+    if (!(EDITOR_CLIS[e.id] || []).includes(cli)) throw new Error("no launcher for this editor");
+    return [cli, [path]];
+  }
+  if (platform !== "macos") throw new Error("editors open on macOS and Linux only");
   return ["open", ["-a", name, path]];
 }

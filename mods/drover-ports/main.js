@@ -2,11 +2,13 @@
 // space it runs in, and Open / Stop. A full-page view; place "none".
 import { View, div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
-import { exec, hc, home, spaces, terminals, theme, window } from "herdr";
+import { exec, hc, home, notify, spaces, terminals, theme, window } from "herdr";
 import { TYPE, SPACE, mono, metaColor, panelHeader, emptyState, button } from "./lib/panel-ui.js";
 import {
   parseLsof, parsePs, parsePpid, parseCwd, parsePids, fmtEtime, fmtMem, fmtCpu,
-  tildify, folderName, friendlyName, findOwner, groupRows, canStop, killArgs,
+  tildify, folderName, friendlyName, findOwner, groupRows, canStop, parseSs, parseNetstat, parseTasklist,
+  parsePwdx, pidsOnPorts, notInstalled, stopCall, openCall, lsofListCall, ssListCall, netstatCall, tasklistCall, pwdxCall,
+  noToolText, lsofUsable,
 } from "./parse.js";
 
 const TICK_MS = 15000;
@@ -23,6 +25,8 @@ const tailPath = (p, max = 30) => {
 };
 const firstLine = (e) => String(e ?? "").split("\n")[0].slice(0, 200);
 const local = (address) => !String(address).includes("/");
+// "macos" | "linux" | "windows"; macOS when no window is up yet (herdr-app check).
+const platformOf = () => { try { return window()?.platform ?? "macos"; } catch { return "macos"; } };
 
 function loadSort() {
   try {
@@ -75,9 +79,16 @@ export default class Ports extends View {
   }
 
   async read() {
-    const ls = await exec("lsof", ["-iTCP", "-sTCP:LISTEN", "-nP"]);
-    if (ls.code !== 0 && ls.stdout.trim()) throw new Error(ls.stderr || "lsof failed");
-    if (ls.code !== 0 && ls.code !== 1) throw new Error(ls.stderr || "lsof failed");
+    const platform = platformOf();
+    if (platform === "windows") return this.readWindows();
+    let ls;
+    try {
+      ls = await exec(...lsofListCall());
+    } catch (e) {
+      if (platform === "linux" && notInstalled(e)) return this.readSs();
+      throw notInstalled(e) ? new Error(noToolText(platform)) : e;
+    }
+    if (!lsofUsable(ls, platform)) throw new Error(ls.stderr || "lsof failed");
     const ports = parseLsof(ls.stdout);
     if (!ports.length) return [];
     const pids = [...new Set(ports.map((p) => p.pid))].join(",");
@@ -86,9 +97,43 @@ export default class Ports extends View {
       exec("lsof", ["-a", "-d", "cwd", "-p", pids, "-Fn"]).catch(() => null),
       exec("ps", ["-axo", "pid=,ppid="]).catch(() => null),
     ]);
-    const procs = parsePs(ps.stdout);
-    const cwds = parseCwd(cwd?.stdout);
-    const ppids = parsePpid(tree?.stdout);
+    return this.rows_(ports, parsePs(ps.stdout), parseCwd(cwd?.stdout), parsePpid(tree?.stdout));
+  }
+
+  // Linux without lsof: ss lists the ports, pwdx (procps) the folders.
+  async readSs() {
+    let ss;
+    try { ss = await exec(...ssListCall()); } catch (e) { throw notInstalled(e) ? new Error(noToolText("linux")) : e; }
+    if (ss.code !== 0) throw new Error(ss.stderr || "ss failed");
+    const ports = parseSs(ss.stdout);
+    if (!ports.length) return [];
+    const pids = [...new Set(ports.map((p) => p.pid))];
+    const [ps, cwd, tree] = await Promise.all([
+      exec("ps", ["-ww", "-o", "pid=,pcpu=,rss=,etime=,command=", "-p", pids.join(",")]),
+      exec(...pwdxCall(pids)).catch(() => null),
+      exec("ps", ["-axo", "pid=,ppid="]).catch(() => null),
+    ]);
+    return this.rows_(ports, parsePs(ps.stdout), parsePwdx(cwd?.stdout), parsePpid(tree?.stdout));
+  }
+
+  // Windows: netstat for the ports, tasklist for names and memory. No cpu, uptime, command
+  // line, folder or parent here, so rows land in System and carry no Herdr space.
+  async readWindows() {
+    const ns = await exec(...netstatCall());
+    if (ns.code !== 0) throw new Error(ns.stderr || "netstat failed");
+    const ports = parseNetstat(ns.stdout);
+    if (!ports.length) return [];
+    const tl = await exec(...tasklistCall()).catch(() => null);
+    const names = parseTasklist(tl?.stdout);
+    const procs = new Map(ports.map((p) => {
+      const t = names.get(p.pid);
+      const name = t?.name ?? `pid ${p.pid}`;
+      return [p.pid, { cpu: null, rss: t?.rss ?? 0, etime: "", command: name, name }];
+    }));
+    return this.rows_(ports, procs, new Map(), new Map());
+  }
+
+  async rows_(ports, procs, cwds, ppids) {
     const owners = await this.shellOwners(ppids);
     const h = home();
     return ports
@@ -99,7 +144,7 @@ export default class Ports extends View {
         const spaceId = findOwner(p.pid, ppids, owners);
         return {
           pid: p.pid, port: p.port, bind: p.bind,
-          name: friendlyName(pr.command, p.command),
+          name: pr.name ?? friendlyName(pr.command, p.command),
           cpu: pr.cpu, rss: pr.rss, up: fmtEtime(pr.etime), command: pr.command,
           folder: dir ? folderName(dir, h) : "", cwd: tildify(dir, h), fullCwd: dir,
           space: spaceId ? spaces().find((s) => s.id === spaceId)?.name ?? null : null,
@@ -109,6 +154,8 @@ export default class Ports extends View {
 
   // Map of each local Herdr terminal's shell pid -> its space id.
   async shellOwners(ppids) {
+    // No parent pids (Windows, or ps failed): nothing can be traced to a shell, so no hc calls.
+    if (!ppids.size) return new Map();
     const live = terminals().filter((t) => local(t.address) && (t.state ?? "live") === "live");
     for (const t of live) {
       const i = this.shells.get(t.address);
@@ -143,7 +190,22 @@ export default class Ports extends View {
   }
 
   open(port) {
-    exec("open", [`http://localhost:${port}`]).catch(() => null);
+    const platform = platformOf();
+    exec(...openCall(port, platform)).catch((e) => {
+      if (platform === "linux" && notInstalled(e)) notify({ title: "Install xdg-utils to open links", level: "warning" });
+    });
+  }
+
+  // The pids still listening on `ports` right now, read with this platform's tool.
+  async listening(pid, ports) {
+    const platform = platformOf();
+    const [cmd, args] = platform === "windows" ? netstatCall()
+      : ["lsof", ["-nP", "-a", "-p", String(pid), `-iTCP:${ports.join(",")}`, "-sTCP:LISTEN", "-t"]];
+    let r = await exec(cmd, args).catch((e) => (notInstalled(e) ? "missing" : null));
+    if (platform === "windows") return pidsOnPorts(parseNetstat(r?.stdout), ports);
+    if (r !== "missing" || platform !== "linux") return parsePids(r?.stdout);
+    r = await exec(...ssListCall()).catch(() => null);
+    return pidsOnPorts(parseSs(r?.stdout), ports);
   }
 
   stop(proc, cx) {
@@ -167,8 +229,13 @@ export default class Ports extends View {
       try {
         // Re-check just before signalling: only this pid, still listening on one of its ports.
         const ports = proc.ports.map((p) => p.port);
-        const r = await exec("lsof", ["-nP", "-a", "-p", String(proc.pid), `-iTCP:${ports.join(",")}`, "-sTCP:LISTEN", "-t"]).catch(() => null);
-        if (canStop(proc.pid, ports[0], parsePids(r?.stdout))) await exec("kill", killArgs(proc.pid)).catch(() => null);
+        const platform = platformOf();
+        if (canStop(proc.pid, ports[0], await this.listening(proc.pid, ports))) {
+          const r = await exec(...stopCall(proc.pid, platform)).catch(() => null);
+          if (platform === "windows" && r?.code !== 0) {
+            notify({ title: `Couldn't stop ${proc.name}`, body: "Windows asked it to close and it didn't. Stop it from its own window or Task Manager.", level: "warning" });
+          }
+        }
       } finally {
         this.stopping.delete(key);
         this.refresh(cx, true);
@@ -219,7 +286,7 @@ export default class Ports extends View {
     return h_flex().flex_none().px(SPACE.PX).py(SPACE.GAP).gap(SPACE.GAP).items_center()
       .child(div().text_size(TYPE.xs).text_color(metaColor(t)).child("Sort by"))
       .child(h_flex().flex_none().h(24).p(2).gap(2).rounded(6).border_1().border_color(t.border).bg(t.surface)
-        .children(SORTS.map(([key, label]) => {
+        .children(SORTS.filter(([key]) => key !== "cpu" || platformOf() !== "windows").map(([key, label]) => {
           const on = this.sort === key;
           const pick = (cx) => this.setSort(key, cx);
           return div().id(`sort-${key}`).px(10).h_full().flex().items_center().rounded(4).text_size(TYPE.xs).cursor_pointer()
@@ -277,7 +344,7 @@ export default class Ports extends View {
       .child(v_flex().flex_1().min_w(0).gap(6)
         .child(h_flex().gap(8).items_center().min_w(0)
           .child(div().font_semibold().truncate().child(r.name))
-          .child(mono(div().flex_none().text_size(TYPE.xs).text_color(metaColor(t, selected ? t.hover : t.surface)).child(`pid ${r.pid} · up ${r.up}`))))
+          .child(mono(div().flex_none().text_size(TYPE.xs).text_color(metaColor(t, selected ? t.hover : t.surface)).child(r.up ? `pid ${r.pid} · up ${r.up}` : `pid ${r.pid}`))))
         .child(h_flex().flex_wrap().gap(6).children(r.ports.map((p) => this.chip(p, r.pid, t))))
         .child(mono(div().text_size(TYPE.xs).text_color(metaColor(t, selected ? t.hover : t.surface)).truncate().child(`${where}${r.command}`))))
       .child(h_flex().flex_none().gap(8).items_center().min_w(72).justify_end()

@@ -6,7 +6,7 @@ A workbench for running several coding agents at once. A 268px sidebar on the le
 
 ## What you see
 
-The window has no title bar. The macOS window buttons sit at 12, 16 and terminals get 14px by 12px of padding. A 1px line in the theme's border color separates the sidebar from the work area.
+The window has no title bar. On macOS the window buttons sit at 12, 16; on Linux and Windows the tab row draws minimize, maximize and close at its right end. Terminals get 14px by 12px of padding. A 1px line in the theme's border color separates the sidebar from the work area.
 
 The sidebar is 268px wide on the theme's chrome background. It can shrink to 44px or grow to 480px. From the top:
 
@@ -34,7 +34,7 @@ Agent status uses the theme's status colors. In the sidebar a tab carries a dot 
 - A pane header's sub-agent count opens a list of everything that agent started, each with its own status.
 - Right-clicking a terminal opens Herdr's menu with one extra item, Open selection, which hands the selected text to the Open with chooser.
 
-Keys, all in `keys.json`:
+Keys, all in `keys.json`. These are the macOS chords. Linux and Windows get a Ctrl chord next to each global one: `cmd-X` is `ctrl-shift-X` and `cmd-shift-X` is `ctrl-alt-shift-X`, so Go to is `ctrl-shift-k` there. The `cmd-alt` ones also become `ctrl-alt-shift` chords, since Ctrl+Alt is AltGr on Windows: Open with `ctrl-alt-shift-w`, Open in `ctrl-alt-shift-i`, History `ctrl-alt-shift-y`, Simulator `ctrl-alt-shift-s`. These extra chords are written with `secondary`, which is Cmd on macOS and Ctrl elsewhere, so macOS gets them as well, as Cmd+Alt+Shift chords, and `ctrl-shift-k` opens Go to on macOS too.
 
 - `cmd-k` Go to: one search field over spaces, tabs, agents, panel pages and drover commands.
 - `cmd-shift-b` shows or hides the side panel. `cmd-shift-j` opens the Panels popup.
@@ -42,7 +42,7 @@ Keys, all in `keys.json`:
 - `cmd-shift-g` Git, `cmd-shift-o` Projects, `cmd-alt-o` Open with, `cmd-shift-k` Composer, `alt-shift-i` Dispatch.
 - `alt-shift-e` equalizes the focused tab's splits, `alt-shift-a` opens the arrangements popup, `alt-shift-s` saves the current split shape, `alt-shift-g` applies a grid.
 - `cmd-alt-e` opens the Open in menu.
-- In the inbox, agent tree, pane header and actions popups, `cmd-w` closes the popup.
+- In the inbox, agent tree, pane header and actions popups, `secondary-w` closes the popup.
 
 ## Built from
 
@@ -82,7 +82,7 @@ Shipped Herdr mods it uses: `workspace-chrome`, `workspace-status`, `files`, `ch
 What the layout's mods touch, in one place. The single items have their own RECIPE with the details.
 
 - Network: only through git, gh and glab when you fetch, push or list pull requests and issues, through your browser when you open a link, and through Herdr's own link when a space lives on another machine.
-- Programs: git (mostly with `--no-optional-locks`), gh, glab, python3 (History's indexer, Review's and Agents' probes), lsof, ps, sysctl, vm_stat, sqlite3, find, ls, test, realpath, stat, mv, mkdir, `/usr/bin/trash`, `open`, rg or grep, zoxide, and for the simulator xcrun, adb, emulator, curl (to the emulator's local gRPC port), sips, open and a small Swift helper that `xcrun swiftc` builds from source on first use. Programs get argument lists. `sh -c` runs only fixed scripts and the commands you save in Actions or Worktrees.
+- Programs: git (mostly with `--no-optional-locks`), gh, glab, python3 (History's indexer, Review's and Agents' probes), lsof, ps, sysctl, vm_stat, sqlite3, find, ls, test, realpath, stat, mv, mkdir, `/usr/bin/trash`, `open`, rg or grep, and on Linux `xdg-open`, `gio trash` or `trash-put`, ss and pwdx, and on Windows `explorer.exe`, PowerShell, netstat, tasklist, taskkill and `where`, zoxide, and for the simulator xcrun, adb, emulator, curl (to the emulator's local gRPC port), sips, open and a small Swift helper that `xcrun swiftc` builds from source on first use. Programs get argument lists. `sh -c` runs only fixed scripts and the commands you save in Actions or Worktrees.
 - `hc`: `send` (Composer, Overview's Reply, the Review and Pulls prompts, Dispatch), `label` (Inbox and Overview keep settled and snoozed marks on the agent's terminal), `get`, `read`, and `connect` for Arrange's read of the split tree.
 - Reads outside the mods folder: the folders of your spaces, `~/.claude`, `~/.codex` and `~/.pi` transcripts (History, Review, Agents), and the setup folders of the agent CLIs (Agents). Credential files and databases are refused by the viewer, files and Agents.
 - Writes: `data/drover-history/` (search index), `data/drover-projects/visits.json`, `data/drover-viewer/` (drafts and an image cache), `data/drover-open/prefs.json`, `data/drover-agents/`, `data/drover-goto/recent.json`, `data/drover-arrange/arrangements.json`, `mods/drover-review/.viewed.json`, simulator frames in `mods/drover-sim-screen/` (the empty companion mod the Simulator panel draws from), and the helper build, saved shots and `simd.json` under `data/drover-sim/`. All of these are under `~/.config/herdr-app`, and the root layout ships `drover-sim-screen` next to `drover-sim`. In your folders it writes only when you ask: saving in the viewer, file operations in Files, Data's edit mode and TODO board, git actions, and new worktrees.
@@ -93,17 +93,17 @@ What the layout's mods touch, in one place. The single items have their own RECI
 - Panel pages are chosen with `layout.select` on the `panel-body` stack, so the stack and its child ids must keep these names. The `layout:drover` section of `keys.json` depends on them.
 - The two 0px blocks in the status row have to stay in the layout; without them the `drover-arrange.*` and `drover-projects.open` key commands have no copy to answer them.
 - `drover-composer` and `drover-dispatch` read the focused terminal or space once, when they open, because after that the dialog itself has focus.
-- Move to Trash needs `/usr/bin/trash` from macOS 15 or later. Without it the item is not shown.
-- The Simulator page needs Xcode's `xcrun simctl` for iOS or `adb` for Android, and its companion mod `drover-sim-screen` next to it. The live view builds a Swift helper from source with `xcrun swiftc` the first time it is needed; no binary ships. It runs nothing while it is hidden.
+- Move to Trash needs `/usr/bin/trash` from macOS 15 or later, and without it the item is not shown. Linux uses `gio trash` or `trash-put`, and Windows the Recycle Bin through PowerShell. On Windows the menu refuses ("Can't move to the Recycle Bin on this drive") on a network share or removable drive, when that drive's Recycle Bin deletes files at once, when the item is at least as big as the Recycle Bin, or when the Recycle Bin settings can't be read, since in those cases Windows would delete the item for good.
+- The Simulator page needs Xcode's `xcrun simctl` for iOS, which means macOS, or `adb` for Android on any system, and its companion mod `drover-sim-screen` next to it. The live view builds a Swift helper from source with `xcrun swiftc` the first time it is needed; no binary ships. It runs nothing while it is hidden.
 
 ## Done when
 
 - The window shows the sidebar, the 42px tab row, framed panes with 28px headers and the 28px status row, and no title bar.
 - The sidebar's strip switches between Spaces and Agents, and the tab of a working agent shows a dot in the working color.
-- `cmd-shift-b` opens the 368px side panel on Files and closes it again.
+- `cmd-shift-b` (`ctrl-alt-shift-b` on Linux and Windows) opens the 368px side panel on Files and closes it again.
 - `cmd-shift-v`, `cmd-shift-e`, `cmd-alt-y` and `cmd-alt-s` each open their page in the panel.
 - Panels lists all sixteen pages, and pinning one adds its button to the tab bar.
-- `cmd-k` opens Go to, and Enter on a space shows that space.
+- `cmd-k` (`ctrl-shift-k` on Linux and Windows) opens Go to, and Enter on a space shows that space.
 - The run button starts a saved command in a new tab.
 - `alt-shift-e` evens out the splits of a tab with three panes.
 - Right-clicking a terminal with text selected shows Open selection, and it opens the chooser with that text.

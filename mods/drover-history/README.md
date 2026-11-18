@@ -72,3 +72,12 @@ indexer.py search --home <appHome> --query=<text> [--cwd <dir>]... [--at <dir>].
 `--query=<text>` is passed as one word, so a query that starts with `-` is not read as an option.
 `--cwd` keeps sessions in that folder or below it; `--at` keeps those started in exactly that folder.
 
+## Platforms
+
+- macOS and Linux: everything above. It needs `python3` and `nice` on PATH.
+- Windows: no `nice`. The panel runs `py -3`, or `python` if there is no py launcher (the
+  Microsoft Store stub that only offers to install Python counts as missing), with `-X utf8` so
+  titles with non-ASCII letters come through on any code page. "All" works and the
+  index lock uses `msvcrt` instead of `fcntl`. "This space" does not work there: folders are
+  matched as `/` paths, so the panel says so and offers Show all.
+

@@ -9,7 +9,7 @@
 
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { run, props, closeOverlay, openOverlay, theme, keys, terminals, spaces, panes, exec } from "herdr";
+import { run, props, closeOverlay, openOverlay, theme, keys, terminals, spaces, panes, exec, window } from "herdr";
 import { stripControl } from "./lib/guard.js";
 
 const OPEN_SELECTION = "drover-open.selection";
@@ -144,8 +144,21 @@ export async function copySelection(cx, target) {
 function shortcut(name, args) {
   // `pane.split:right` binds pane.split with { direction: "right" }.
   const value = args && Object.values(args)[0];
-  const k = keys().find((b) => b.section === "global" && (b.action === name || b.action === `${name}:${value}`));
-  return k ? k.keys : "";
+  const list = keys().filter((b) => b.section === "global" && (b.action === name || b.action === `${name}:${value}`));
+  let platform = "macos";
+  try { platform = window()?.platform ?? "macos"; } catch { /* no window yet: macOS */ }
+  // secondary is Cmd on macOS and Ctrl elsewhere; show the key the user presses.
+  return (pickBinding(list, platform)?.keys ?? "").replace(/\bsecondary\b/g, platform === "macos" ? "cmd" : "ctrl");
+}
+
+// keys.json can bind one command twice: a macOS chord and a Linux and Windows one. The one for this
+// platform: on macOS one held with cmd or secondary, elsewhere one with no cmd, super or win
+// (secondary is ctrl there); else the first.
+export function pickBinding(list, platform) {
+  const held = (b) => String(b?.keys ?? "").trim().split(/\s+/).flatMap((s) => s.split("-").slice(0, -1)).map((m) => m.toLowerCase());
+  const cmd = (m) => m === "cmd" || m === "super" || m === "win";
+  const fits = platform === "macos" ? (b) => held(b).some((m) => cmd(m) || m === "secondary") : (b) => !held(b).some(cmd);
+  return list.find(fits) ?? list[0] ?? null;
 }
 
 export default class Menu extends View {

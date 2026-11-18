@@ -23,9 +23,9 @@ import {
   MOD, EXEC_TIMEOUT, KEY_HOME, KEY_BACK, OLD_FRAMES_REL, simShown, parseSimctl, parseAdbDevices, parseAvds, avdDevices,
   sdkDirs, sdkOfAdb, adbCandidates, envCall, iosListFailure, pickDevice, deviceKey, iosListCall, iosShotCall, openSimulatorCall,
   adbVersionCall, adbDevicesCall, avdListCall, avdNameCall, probeCall, sizeCall, androidShotCalls, androidKeyCall,
-  powerCall, revealCall, parsePngSize, parseJpegSize, shotsDir, tmpDir, oldFramesToRemove, shotName, scaleCall,
+  powerCall, revealCall, revealLabel, emptyTexts, pngSizeFromBytes, emulatorPath, sdkEnvNames, sdkFromEnv, whereCall, parseWhere, parsePngSize, parseJpegSize, shotsDir, tmpDir, oldFramesToRemove, shotName, scaleCall,
   isEmulatorSerial, wmSizeCall, parseWmSize, androidPoint, motionEventCall, swipeCall, androidKeyPress,
-  fpsOptions, clampFps, nextDelay, fitBox,
+  fpsOptions, clampFps, nextDelay, fitBox, sizeFallbackCall, firstLine,
 } from "./lib/sim.js";
 import {
   HELPER_SRC, BUILD_TIMEOUT, START_TIMEOUT, PROTOCOL, EXIT_RUNNING, EXIT_FRAMEWORKS, helperDir, binDir, binPath,
@@ -60,8 +60,6 @@ const XCODE_DEV = /\.app\/Contents\/Developer\/?$/;
 /** A failure with a reason fit for the panel; `permanent` ones fall back until Refresh. */
 const fail = (reason, permanent = false) => Object.assign(new Error(reason), { permanent });
 
-// A tool's first error line for the footer, with file paths cut out (sips, mv and simctl name them).
-const firstLine = (s) => String(s ?? "").trim().split("\n")[0].replace(/(~|\/)[^\s:'"]*\/[^\s:'"]*/g, "<path>").slice(0, 160);
 const store = {
   get(k) { try { return globalThis.localStorage?.getItem(k) ?? null; } catch { return null; } },
   set(k, v) { try { globalThis.localStorage?.setItem(k, String(v)); } catch { /* no storage here */ } },
@@ -706,17 +704,36 @@ export default class extends View {
       if (r.code !== 0) throw new Error(firstLine(r.stderr) || `${call[0]} exited ${r.code}`);
       return r;
     };
-    try {
-      for (const call of d.platform === "ios" ? [iosShotCall(d.id, tmp)] : androidShotCalls(this.adb, d.id, tmp)) await run(call);
-      await run(this.platform === "macos" ? scaleCall(tmp, wip) : moveCall(tmp, wip));
-      await run(moveCall(wip, dst));
-    } finally {
-      try { await fs.unlink(tmp); } catch { /* never written or moved */ }
-      try { await fs.unlink(wip); } catch { /* moved */ }
+    if (this.platform === "windows") {
+      // No mv there: adb pulls straight onto the slot past the top, which isn't shown yet.
+      for (const call of androidShotCalls(this.adb, d.id, dst)) await run(call);
+    } else {
+      try {
+        for (const call of d.platform === "ios" ? [iosShotCall(d.id, tmp)] : androidShotCalls(this.adb, d.id, tmp)) await run(call);
+        await run(this.platform === "macos" ? scaleCall(tmp, wip) : moveCall(tmp, wip));
+        await run(moveCall(wip, dst));
+      } finally {
+        try { await fs.unlink(tmp); } catch { /* never written or moved */ }
+        try { await fs.unlink(wip); } catch { /* moved */ }
+      }
     }
-    const out = (await this.run(sizeCall(dst))).stdout;
-    const size = parseJpegSize(out) ?? parsePngSize(out);
-    if (!size) throw new Error("The screenshot wasn't an image");
+    let size;
+    if (this.platform === "macos") {
+      const out = (await this.run(sizeCall(dst))).stdout;
+      size = parseJpegSize(out) ?? parsePngSize(out);
+    } else {
+      // fs.readFile returns bytes (gpui-kit.d.ts); anything else, or a failed read, sizes nothing here.
+      let bytes = null;
+      try { bytes = await fs.readFile(dst); } catch { /* unreadable: the fallback below */ }
+      size = pngSizeFromBytes(bytes);
+      const call = size ? null : sizeFallbackCall(dst, this.platform);
+      if (call) {
+        try { const out = (await this.run(call)).stdout; size = parseJpegSize(out) ?? parsePngSize(out); } catch { /* no file(1) */ }
+      }
+    }
+    // Off macOS an unknown size keeps the last frame size rather than failing the shot.
+    if (!size && this.platform === "macos") throw new Error("The screenshot wasn't an image");
+    size ??= {};
     this.localSeq++;
     this.reveal(slot, this.localSeq, "local", { key: deviceKey(d), ...size }, cx);
   }
@@ -774,28 +791,38 @@ export default class extends View {
     try { return (await exec(cmd, args, { timeout })).code === 0; } catch { return false; }
   }
 
-  /** $ANDROID_HOME and $ANDROID_SDK_ROOT from the user's environment (empty when unset). */
+  /** SDK folders named by the user's environment ($ANDROID_HOME, $ANDROID_SDK_ROOT, and on
+   *  Windows %LOCALAPPDATA%\\Android\\Sdk); empty when unset. The values are never shown. */
   async readEnvSdks() {
     const out = [];
-    for (const name of ["ANDROID_HOME", "ANDROID_SDK_ROOT"]) {
+    for (const name of sdkEnvNames(this.platform)) {
       try {
-        const r = await exec(...envCall(name), { timeout: EXEC_TIMEOUT });
-        const v = String(r.stdout ?? "").trim().split("\n")[0];
+        const r = await exec(...envCall(name, this.platform), { timeout: EXEC_TIMEOUT });
+        const v = sdkFromEnv(name, String(r.stdout ?? "").trim().split(/\r?\n/)[0], this.platform);
         if (r.code === 0 && v) out.push(v);
       } catch { /* not readable */ }
     }
     return out;
   }
 
-  /** adb on PATH, else an SDK's platform-tools or a package manager's bin (probed with test -x). */
+  /** adb on PATH, else an SDK's platform-tools or a package manager's bin (probed with test -x,
+   *  or on Windows by running `<adb> version`). Windows asks `where adb.exe` first so the SDK
+   *  folder (and its emulator) is known. */
   async resolveAdb() {
     if (this.adb) return this.adb;
     if (Date.now() < this.adbProbeAt) return null;
     this.adbProbeAt = Date.now() + ADB_RETRY;
+    if (this.platform === "windows") {
+      try {
+        const r = await exec(...whereCall("adb.exe"), { timeout: EXEC_TIMEOUT });
+        const p = r.code === 0 ? parseWhere(r.stdout) : null;
+        if (p && await this.ok(...adbVersionCall(p))) return (this.adb = p);
+      } catch { /* no where.exe */ }
+    }
     if (await this.ok(...adbVersionCall("adb"))) return (this.adb = "adb");
     this.envSdks = await this.readEnvSdks();
     for (const p of adbCandidates(sdkDirs(home(), this.platform, this.envSdks), this.platform)) {
-      if (await this.ok(...probeCall(p))) return (this.adb = p);
+      if (await this.ok(...probeCall(p, this.platform, ["version"]))) return (this.adb = p);
     }
     return null;
   }
@@ -804,8 +831,8 @@ export default class extends View {
     if (this.emulator !== undefined) return this.emulator;
     const sdks = [...new Set([sdkOfAdb(this.adb), ...sdkDirs(home(), this.platform, this.envSdks)].filter(Boolean))];
     for (const sdk of sdks) {
-      const p = `${sdk}/emulator/emulator`;
-      if (await this.ok(...probeCall(p))) return (this.emulator = p);
+      const p = emulatorPath(sdk, this.platform);
+      if (await this.ok(...probeCall(p, this.platform, ["-list-avds"]))) return (this.emulator = p);
     }
     return (this.emulator = null);
   }
@@ -934,7 +961,20 @@ export default class extends View {
   reveal_(cx) {
     if (!this.lastShot) return;
     const [cmd, args] = revealCall(this.lastShot, this.platform);
-    cx.spawn(async (cx) => { await this.act(cmd, args, EXEC_TIMEOUT, "Couldn't reveal the screenshot", cx); });
+    if (this.platform === "macos") {
+      cx.spawn(async (cx) => { await this.act(cmd, args, EXEC_TIMEOUT, "Couldn't reveal the screenshot", cx); });
+      return;
+    }
+    // explorer.exe exits 1 even when it worked, so only a missing program counts as failure there.
+    cx.spawn(async (cx) => {
+      try {
+        const r = await exec(cmd, args, { timeout: EXEC_TIMEOUT });
+        if (r.code !== 0 && this.platform !== "windows") this.say(firstLine(r.stderr) || "Couldn't show the screenshot", true, cx);
+      } catch (e) {
+        const missing = /program not found/i.test(String(e?.message ?? ""));
+        this.say(missing && this.platform === "linux" ? "Install xdg-utils to open files" : firstLine(e?.message) || "Couldn't show the screenshot", true, cx);
+      }
+    });
   }
 
   setFps(n, cx) { this.fps = n; store.set(FPS_KEY, n); cx.notify(); }
@@ -1005,7 +1045,7 @@ export default class extends View {
         .child(button({ id: "sim-home", label: "Home", onClick: (cx) => this.key(KEY_HOME, cx) }, t))
         .child(button({ id: "sim-back", label: "Back", onClick: (cx) => this.key(KEY_BACK, cx) }, t)))
       .when(booted, (el) => el.child(button({ id: "sim-save", label: "Save", onClick: (cx) => this.save(cx) }, t)))
-      .when(Boolean(this.lastShot), (el) => el.child(button({ id: "sim-reveal", label: "Reveal", onClick: (cx) => this.reveal_(cx) }, t)));
+      .when(Boolean(this.lastShot), (el) => el.child(button({ id: "sim-reveal", label: revealLabel(this.platform), onClick: (cx) => this.reveal_(cx) }, t)));
     const rate = h_flex().id("sim-rate").flex_none().px(SPACE.PX).pt(6).gap(4).items_center()
       .children(live ? [] : fpsOptions(d.platform).map((n) => this.toggle({ id: `sim-fps-${n}`, label: `${n} fps`,
         active: !this.paused && clampFps(this.fps, d.platform) === n, onClick: (cx) => { this.paused = false; this.setFps(n, cx); this.kick(cx); } }, t)))
@@ -1077,18 +1117,18 @@ export default class extends View {
   }
 
   body(t) {
+    const empty = emptyTexts(this.platform);
     const notes = [this.ios.note, this.android.note].filter(Boolean);
     const lines = notes.map((n, i) => div().id(`sim-tool-note-${i}`).flex_none().px(SPACE.PX).pt(4).truncate()
       .text_size(TYPE.xs).text_color(metaColor(t)).child(n));
     if (!this.discovered) return [emptyState({ id: "sim-loading", icon: UI("smartphone"), title: "Looking for devices…" }, t)];
     if (this.ios.tool === "missing" && this.android.tool === "missing") return [emptyState({ id: "sim-no-tools", icon: UI("smartphone"),
-      title: "No simulator tools found", body: "Install Xcode for iOS Simulators or Android platform-tools (adb) for Android." }, t), ...lines];
+      ...empty.noTools }, t), ...lines];
     if (this.ios.tool !== "ok" && this.android.tool !== "ok") return [emptyState({ id: "sim-waiting-tools", icon: UI("smartphone"),
-      title: "Waiting for simctl…" }, t), ...lines];
+      title: empty.waiting }, t), ...lines];
     const d = this.device();
     const out = [this.deviceList(t), ...lines];
-    if (!d) return [...out, emptyState({ id: "sim-no-devices", icon: UI("smartphone"), title: "No simulators or devices",
-      body: "Create one in Xcode or Android Studio; it shows up here." }, t)];
+    if (!d) return [...out, emptyState({ id: "sim-no-devices", icon: UI("smartphone"), ...empty.noDevices }, t)];
     return [...out, this.toolbar(d, t), this.preview(d, t), this.footer(d, t)];
   }
 

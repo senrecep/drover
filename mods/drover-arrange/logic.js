@@ -242,6 +242,14 @@ export function summary({ created, started, notes, stopped }) {
   return out.join(" · ") + ".";
 }
 
+/** The sentence for an exec that could not start `tool` (Windows has no sh); null for any other failure. */
+export function missingTool(err, tool, platform) {
+  if (!/program not found|ENOENT/.test(String(err?.message ?? err))) return null;
+  return platform === "windows"
+    ? `Reading the layout needs ${tool}. Install Git for Windows and put its usr\\bin on PATH.`
+    : `Reading the layout needs ${tool}. Install it and try again.`;
+}
+
 // --- saved arrangements ------------------------------------------------------
 
 export function cleanName(name) {

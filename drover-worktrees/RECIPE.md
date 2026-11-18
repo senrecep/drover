@@ -39,6 +39,7 @@ What it touches:
 
 ## Watch out
 
+- On Windows, creating or removing a worktree on this computer is refused with a one-line reason; the check for agents still working in a worktree matches `/` paths. Spaces on another machine work as usual.
 - Worktrees always go under `<repo>/.claude/worktrees/`. Add that folder to the repository's `.gitignore` if you don't want it to show as untracked.
 - Remove never forces. git refuses on its own if the tree changed between the check and the click.
 - Without `gh`, rows simply have no PR tag.

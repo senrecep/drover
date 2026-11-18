@@ -142,29 +142,53 @@ export const ICONS = {
   copyPath: "copy", files: "panel-right", search: "search", copyText: "copy", finder: "folder-search",
 };
 
-// Things the system opener would run rather than show (kept in step with drover-files): those get Reveal instead.
+// Launch lists, kept byte-identical in drover-files, drover-viewer, drover-open, drover-git and drover-agents.
+// LAUNCH_EXT: what the system opener runs rather than shows. Folders: app and installer bundles.
 const LAUNCH_EXT = new Set(["app", "command", "tool", "terminal", "workflow", "action", "scpt", "scptd", "applescript", "pkg", "mpkg",
   "dmg", "img", "iso", "jar", "sh", "bash", "zsh", "csh", "ksh", "fish", "py", "rb", "pl", "php", "exe", "bat", "cmd", "com", "msi", "ps1", "vbs",
   "desktop", "appimage", "run", "bin", "url", "webloc", "inetloc", "fileloc", "prefpane", "saver", "osax", "kext", "plugin", "bundle",
   "mobileconfig", "dylib", "so"]);
-export function launchRisk(p, { dir = false, executable = false } = {}) {
+// WINDOWS_LAUNCH_EXT: what explorer.exe runs too. Only on Windows: elsewhere .js and the rest open in an app.
+const WINDOWS_LAUNCH_EXT = new Set(["lnk", "scr", "hta", "js", "jse", "vbe", "wsf", "wsh", "reg", "cpl", "msc", "msp", "pif", "psm1", "psc1",
+  "application", "appref-ms", "gadget", "inf", "settingcontent-ms", "library-ms", "diagcab", "scf", "rdp", "iqy", "slk", "ade", "adp",
+  "msix", "msixbundle", "appx", "appxbundle", "appinstaller", "msu", "pyw", "pyz", "pyzw",
+  "chm", "ws", "wsc", "sct", "xll", "vhd", "vhdx", "search-ms", "searchconnector-ms", "website",
+  "jnlp", "theme", "themepack", "mht", "xbap"]);
+// Would explorer.exe run this path? The name after the last / or \, with the trailing dots and spaces
+// Windows drops ("a.exe." runs a.exe). A name that is only an extension (".js") counts. A ":" means an
+// NTFS stream ("a.exe:s", "a.lnk::$DATA"), which is refused too.
+function windowsRuns(p) {
+  const b = String(p ?? "").split(/[\\/]/).pop().toLowerCase().replace(/[. ]+$/, ""), i = b.lastIndexOf(".");
+  return b.includes(":") || (i >= 0 && (LAUNCH_EXT.has(b.slice(i + 1)) || WINDOWS_LAUNCH_EXT.has(b.slice(i + 1))));
+}
+export function launchRisk(p, { dir = false, executable = false, platform } = {}) {
   const b = basename(String(p ?? "")).toLowerCase(), i = b.lastIndexOf("."), ext = i > 0 ? b.slice(i + 1) : "";
-  if (LAUNCH_EXT.has(ext)) return dir ? "an app or bundle: opening it runs it" : "a script or launcher: opening it runs it";
+  if (LAUNCH_EXT.has(ext) || (platform === "windows" && windowsRuns(p))) return dir ? "an app or bundle: opening it runs it" : "a script or launcher: opening it runs it";
   if (!dir && executable) return "an executable: opening it runs it";
   return null;
 }
 // Why the system app must not get this path (looked-up info), checked on the path as written and on its real target.
-export const infoRisk = (info) => {
+export const infoRisk = (info, platform) => {
   if (!info || (info.status !== "file" && info.status !== "dir")) return null;
-  const o = { dir: info.status === "dir", executable: Boolean(info.exec) };
+  const o = { dir: info.status === "dir", executable: Boolean(info.exec), platform };
   return launchRisk(info.abs, o) || launchRisk(info.real, o);
 };
+// Windows form of a path: backslashes, and a drive root stays "C:\" (never "C:", the current folder on drive C).
+const winNative = (p) => String(p).replace(/\//g, "\\").replace(/^([A-Za-z]:)$/, "$1\\");
+// explorer.exe splits its arguments at commas, so it is never handed a path with one.
+export const COMMA_PATH = "Explorer can't open paths with a comma. Copy the path instead.";
+export const explorerProblem = (platform, path) => (platform === "windows" && String(path ?? "").includes(",") ? COMMA_PATH : null);
 // argv that shows (never opens) a local file or folder in the system file manager.
 export function systemRevealArgv(platform, path) {
   if (platform === "macos") return ["open", ["-R", "--", path]];
-  if (platform === "windows") return ["explorer", ["/select," + path.replace(/\//g, "\\")]];
+  if (platform === "windows") return ["explorer.exe", ["/select,", winNative(path)]];
   return ["xdg-open", [parent(path)]];
 }
+// The name of that action in the system's own words (no platform: macOS).
+export const finderLabel = (platform) =>
+  !platform || platform === "macos" ? LABELS.finder : platform === "windows" ? "Show in Explorer" : "Show in file manager";
+// What to say when the system opener is not installed (exec rejects with "program not found").
+export const missingOpener = (cmd) => (cmd === "xdg-open" ? "xdg-open is missing. Install xdg-utils to open files." : `${cmd} was not found.`);
 
 // Which remembered-choice bucket a target falls in.
 export function prefKey(target, info) {
@@ -174,11 +198,12 @@ export function prefKey(target, info) {
   return info?.status === "dir" ? "dir" : info?.status === "file" ? "file" : null;
 }
 
-// The editor rows for a local file or folder: one per installed editor (ctx.editors), macOS only.
+// The editor rows for a local file or folder: one per installed editor (ctx.editors), macOS and Linux
+// (on Linux only editors found through their command-line launcher, `cli`).
 export function editorRows(ctx = {}, disabled = null) {
-  if (ctx.platform !== "macos" || !Array.isArray(ctx.editors)) return [];
+  if ((ctx.platform !== "macos" && ctx.platform !== "linux") || !Array.isArray(ctx.editors)) return [];
   return ctx.editors
-    .filter((e) => e && typeof e.id === "string" && typeof e.name === "string")
+    .filter((e) => e && typeof e.id === "string" && typeof e.name === "string" && (ctx.platform === "macos" || typeof e.cli === "string"))
     .map((e) => ({ id: EDITOR_PREFIX + e.id, label: `Open in ${e.name}`, icon: "app-window", disabled, editor: e.name }));
 }
 
@@ -198,9 +223,9 @@ export function actionsFor(target, info = {}, ctx = {}) {
   const deny = info.deny ? `refused: ${info.deny}` : null;
   // A launcher or executable is never handed to the system app: the system file manager shows it instead.
   const sys = () => {
-    if (deny || !infoRisk(info)) return a("system", deny || remote);
+    if (deny || !infoRisk(info, ctx.platform)) return a("system", deny || remote);
     const f = a("finder", remote);
-    if (ctx.platform && ctx.platform !== "macos") f.label = "Show in file manager";
+    f.label = finderLabel(ctx.platform);
     return f;
   };
   const eds = () => editorRows(ctx, deny || remote);
@@ -217,9 +242,9 @@ export function actionsFor(target, info = {}, ctx = {}) {
 function editorActions(target, info, ctx, a, remote) {
   if (target.kind !== "path") return [];
   const sysRow = (disabled) => {
-    if (disabled || !infoRisk(info)) return a("system", disabled);
+    if (disabled || !infoRisk(info, ctx.platform)) return a("system", disabled);
     const f = a("finder");
-    if (ctx.platform && ctx.platform !== "macos") f.label = "Show in file manager";
+    f.label = finderLabel(ctx.platform);
     return f;
   };
   if (remote) return [...editorRows(ctx, remote), a("system", remote)];
@@ -246,7 +271,7 @@ export const revealFolder = (info) => (info.status === "dir" ? info.abs : parent
 // argv that opens a local file or folder with the system's app.
 export function systemOpenArgv(platform, path) {
   if (platform === "macos") return ["open", ["--", path]];
-  if (platform === "windows") return ["explorer", [path.replace(/\//g, "\\")]];
+  if (platform === "windows") return ["explorer.exe", [winNative(path)]];
   return ["xdg-open", [path]];
 }
 

@@ -79,3 +79,19 @@ Optional, in `<herdr-app home>/data/drover-git/settings.json`:
   `.ssh`, `.netrc`, and so on) are never opened.
 - Nothing is sent to a terminal or agent without a click, and the mod writes no files.
 
+## Platforms
+
+- macOS: everything works. Opening a file without the viewer mod uses `open`.
+- Linux: everything works. Opening a file without the viewer mod uses `xdg-open`, and when that is
+  missing the view says to install xdg-utils.
+- Windows: opening a file without the viewer mod uses `explorer.exe` with a drive-letter path, and
+  its exit code is ignored because it is 1 even when the file opened. Scripts, shortcuts, installers
+  and other files Explorer would run (`.exe`, `.js`, `.lnk`, `.msix`, `.search-ms` and others), and
+  paths with a comma (Explorer splits its arguments at commas), are not opened; the view offers Copy
+  path instead. Fetch, pull and push run git
+  through `env` to turn off password prompts, so they need `env` on PATH: Git for Windows has it in
+  its `usr\bin` folder, which a default install does not put on PATH. Without it those actions
+  fail with "Could not run git". Repositories on another machine run the same commands there.
+
+Web links always open through the app's URL opener, on every system.
+

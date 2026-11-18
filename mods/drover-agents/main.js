@@ -29,7 +29,7 @@ import { exec, spaces, panes, focused, terminals, theme, home, appHome, props, r
 import {
   mergePrices, formatTokens, formatUsd, contextView, tildify, shortPath, gitArgs, rootFor, modelRows,
   GROUPS, countSummary, pickAgent, stepAgent, itemDetail, parseCommand,
-  tokensAdapter, dayLabel, percent1, heatWeeks, sizeLabel, visibleIn, narrow, navKey,
+  tokensAdapter, dayLabel, percent1, heatWeeks, sizeLabel, visibleIn, narrow, navKey, editorArgv, openProblem, openRefusal, pythonCommands,
 } from "./lib/parse.js";
 
 const MOD = "drover-agents";
@@ -53,8 +53,13 @@ const press = (el, fn) => el.role("button").tab_index(0).on_key_down((e, cx) => 
 const selectedChip = (text, t) => div().flex_none().max_w("100%").truncate().px(6).py(1).rounded(4).bg(t.background)
   .border_1().border_color(t.border).text_size(TYPE.xs).text_color(metaColor(t, t.background)).child(String(text));
 
+// How to start Python 3, tried in order: Windows' py launcher first, as python.org installs no python3.exe.
 async function probe(args) {
-  const r = await exec("python3", ["-I", PROBE(), ...args], { timeout: 60_000 });
+  let r = null;
+  for (const [cmd, pre] of pythonCommands(window()?.platform ?? "macos")) {
+    try { r = await exec(cmd, [...pre, "-I", PROBE(), ...args], { timeout: 60_000 }); break; } catch (e) { if (!/program not found/.test(String(e?.message ?? e))) throw e; }
+  }
+  if (!r) throw new Error("probe");
   const data = JSON.parse(r.stdout.trim() || "{}");
   if (r.code !== 0 || data.error) throw new Error("probe");
   return data;
@@ -246,10 +251,19 @@ export default class Agents extends View {
   }
 
   // The probe returns the path with the home folder as "~"; only a whole absolute path is opened.
-  openInEditor(path) {
-    const full = path.startsWith("~/") ? home() + path.slice(1) : path;
-    if (!full.startsWith("/") || full.includes("…")) return;
-    exec("open", ["-t", full]).catch(() => null);
+  openInEditor(path, cx) {
+    const platform = window()?.platform ?? "macos";
+    const argv = editorArgv(path, home(), platform);
+    if (!argv) return;
+    const view = this.view;
+    cx.spawn(async (cx) => {
+      let r = null, err = null;
+      try { r = await exec(argv[0], argv[1]); } catch (e) { err = e; }
+      const text = openProblem(platform, r, err);
+      if (!text || !view || this.view !== view) return;
+      this.view = { ...view, note: text };
+      cx.notify();
+    });
   }
 
   loadList(cx) {
@@ -371,15 +385,21 @@ export default class Agents extends View {
     const v = this.view;
     const d = v.data;
     const path = d?.path ?? "";
-    const canOpen = Boolean(d) && (path.startsWith("~/") || path.startsWith("/")) && !path.includes("…");
+    const platform = window()?.platform ?? "macos";
+    const fullPath = home() ? path.replace(/^~(?=[\\/])/, home()) : path;
+    const refusal = d ? openRefusal(fullPath, platform) : null;
+    const canOpen = Boolean(d) && !refusal && editorArgv(path, home(), platform) !== null;
+    const note = v.note ?? refusal;
     const m = metaColor(t, t.surface);
     const trunc = Boolean(d?.truncated);
     return v_flex().id("agents-viewer").when(full, (el) => el.flex_1()).when(!full, (el) => el.flex_none().w("45%")).h_full().min_w(0).border_l_1().border_color(t.border).bg(t.surface)
       .child(h_flex().flex_none().h(SPACE.HEADER_H).px(SPACE.PX).gap(SPACE.GAP).items_center().border_b_1().border_color(t.border)
         .child(div().flex_1().min_w(0).truncate().text_size(TYPE.md).font_semibold().child(d?.name ?? v.name))
         .child(chip(v.kind, t))
-        .when(canOpen, (el) => el.child(kitButton({ id: "viewer-open", label: "Open in editor", onClick: () => this.openInEditor(path) }, t)))
+        .when(canOpen, (el) => el.child(kitButton({ id: "viewer-open", label: "Open in editor", onClick: (cx) => this.openInEditor(path, cx) }, t)))
+        .when(Boolean(refusal), (el) => el.child(kitButton({ id: "viewer-copy", label: "Copy path", onClick: (cx) => cx.write_to_clipboard(fullPath) }, t)))
         .child(iconButton({ id: "viewer-close", icon: ICON.close, label: "Close", onClick: (cx) => this.closeView(cx) }, t)))
+      .when(Boolean(note), (el) => el.child(div().id("viewer-note").flex_none().px(SPACE.PX).pt(6).text_size(TYPE.xs).text_color(t.blocked).child(note)))
       .child(h_flex().flex_none().px(SPACE.PX).py(6).gap(8).items_center().min_w(0).text_size(TYPE.xs).text_color(m)
         .when(v.loading || !d, (el) => el.child(div().child(v.loading ? "Reading…" : " ")))
         .when(!v.loading && Boolean(d), (el) => el

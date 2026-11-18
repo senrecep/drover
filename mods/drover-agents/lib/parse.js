@@ -92,6 +92,65 @@ export function tildify(path, home) {
   return path.startsWith(home + "/") ? "~" + path.slice(home.length) : path;
 }
 
+// What opens a probe path (home written as "~") in an editor; null unless it is a whole path. macOS: the
+// default text editor (open -t). Linux: xdg-open. Windows: explorer.exe, which hands it to the file's app
+// and returns at once (Notepad would stay running into exec's timeout).
+// A "~/x" path with no known home folder is not opened (it must not become "/x"). On Windows a file
+// explorer.exe would run, a path with a comma, or a network path (\\server or //server) is not opened
+// either: openRefusal says why.
+export function editorArgv(path, home, platform) {
+  const p = String(path ?? ""), win = platform === "windows";
+  const tilde = (win ? /^~[\\/]/ : /^~\//).test(p);
+  if (tilde && !home) return null;
+  const full = tilde ? String(home) + p.slice(1) : p;
+  if (full.includes("…")) return null;
+  if (win) return /^[A-Za-z]:[\\/]/.test(full) && !openRefusal(full, platform) ? ["explorer.exe", [full.replace(/\//g, "\\")]] : null;
+  if (!full.startsWith("/")) return null;
+  return platform === "linux" ? ["xdg-open", [full]] : ["open", ["-t", full]];
+}
+
+// Launch lists, kept byte-identical in drover-files, drover-viewer, drover-open, drover-git and drover-agents.
+// LAUNCH_EXT: what the system opener runs rather than shows. Folders: app and installer bundles.
+const LAUNCH_EXT = new Set(["app", "command", "tool", "terminal", "workflow", "action", "scpt", "scptd", "applescript", "pkg", "mpkg",
+  "dmg", "img", "iso", "jar", "sh", "bash", "zsh", "csh", "ksh", "fish", "py", "rb", "pl", "php", "exe", "bat", "cmd", "com", "msi", "ps1", "vbs",
+  "desktop", "appimage", "run", "bin", "url", "webloc", "inetloc", "fileloc", "prefpane", "saver", "osax", "kext", "plugin", "bundle",
+  "mobileconfig", "dylib", "so"]);
+// WINDOWS_LAUNCH_EXT: what explorer.exe runs too. Only on Windows: elsewhere .js and the rest open in an app.
+const WINDOWS_LAUNCH_EXT = new Set(["lnk", "scr", "hta", "js", "jse", "vbe", "wsf", "wsh", "reg", "cpl", "msc", "msp", "pif", "psm1", "psc1",
+  "application", "appref-ms", "gadget", "inf", "settingcontent-ms", "library-ms", "diagcab", "scf", "rdp", "iqy", "slk", "ade", "adp",
+  "msix", "msixbundle", "appx", "appxbundle", "appinstaller", "msu", "pyw", "pyz", "pyzw",
+  "chm", "ws", "wsc", "sct", "xll", "vhd", "vhdx", "search-ms", "searchconnector-ms", "website",
+  "jnlp", "theme", "themepack", "mht", "xbap"]);
+// Would explorer.exe run this path? The name after the last / or \, with the trailing dots and spaces
+// Windows drops ("a.exe." runs a.exe). A name that is only an extension (".js") counts. A ":" means an
+// NTFS stream ("a.exe:s", "a.lnk::$DATA"), which is refused too.
+function windowsRuns(p) {
+  const b = String(p ?? "").split(/[\\/]/).pop().toLowerCase().replace(/[. ]+$/, ""), i = b.lastIndexOf(".");
+  return b.includes(":") || (i >= 0 && (LAUNCH_EXT.has(b.slice(i + 1)) || WINDOWS_LAUNCH_EXT.has(b.slice(i + 1))));
+}
+
+// Why a path is not handed to the opener, or null. Only Windows refuses anything: a network path, which
+// would reach out to the server; a file it would run (see windowsRuns); a path with a comma.
+export function openRefusal(path, platform) {
+  if (platform !== "windows") return null;
+  const p = String(path ?? "");
+  if (/^[\\/]{2}/.test(p)) return "Network paths (\\\\server\\share) are not opened here. Use Copy path and open it in your editor.";
+  if (windowsRuns(p)) return "Windows would run this file instead of showing it, so it is not opened here. Use Copy path and open it in your editor.";
+  if (p.includes(",")) return "Windows Explorer cannot open a path with a comma in it. Use Copy path and open it in your editor.";
+  return null;
+}
+
+// What to say when the editor did not open, from exec's result or error; null when it did, and on macOS,
+// which stays quiet as before. explorer.exe exits 1 even when it opened the file.
+export function openProblem(platform, result, error) {
+  if (platform === "macos") return null;
+  if (error) {
+    if (!/program not found/.test(String(error?.message ?? error))) return "Could not open the file.";
+    return platform === "linux" ? "Install xdg-utils to open files." : "explorer.exe was not found.";
+  }
+  return platform === "linux" && result?.code !== 0 ? "Could not open the file: xdg-open found no app for it." : null;
+}
+
 // The tail of a long path behind "…/", as many whole segments as fit in `max` characters.
 export function shortPath(path, max = 30) {
   if (!path) return "";
@@ -274,3 +333,7 @@ export function navKey({ key, ids = [], current = null, small = false, page = "l
   if (key === "enter" && small && ids.includes(current)) return { page: "detail" };
   return null;
 }
+
+// How probe.py is started, tried in order: on Windows the py launcher first (python.org installs no
+// python3.exe), elsewhere exactly python3.
+export const pythonCommands = (platform) => (platform === "windows" ? [["py", ["-3"]], ["python3", []]] : [["python3", []]]);

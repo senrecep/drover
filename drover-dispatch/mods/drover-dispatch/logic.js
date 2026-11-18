@@ -190,11 +190,15 @@ export function parseWorktrees(out) {
 /** Default branch name from `symbolic-ref --short refs/remotes/origin/HEAD` ("origin/main"). */
 export const defaultFromRemoteHead = (out) => String(out ?? "").trim().replace(/^origin\//, "") || null;
 
+// Worktree paths here are / paths, checked with realpath and test: none of that holds on Windows.
+export const WINDOWS_NOTE = "Setting up a worktree needs macOS or Linux: its folder checks use / paths, realpath and test, which Windows does not have.";
+
 /**
- * What Set up would do. facts: { main, branch, base, worktrees, branchExists, folderExists }.
+ * What Set up would do. facts: { main, branch, base, worktrees, branchExists, folderExists, platform }.
  * Returns { kind: "create" | "open" | "refuse", path, reason, existing }.
  */
 export function buildPlan(f) {
+  if (f.platform === "windows") return { kind: "refuse", path: null, reason: WINDOWS_NOTE };
   const err = nameError(f.branch);
   if (err) return { kind: "refuse", path: null, reason: err };
   const path = worktreePath(f.main, f.branch);

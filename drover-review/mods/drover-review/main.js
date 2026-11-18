@@ -2,7 +2,7 @@
 // the files the agent touched in its latest turns, and two drafting prompts for that agent.
 // Read-only outside its own folder. Programs it runs:
 //   git (read-only argv, see lib/logic.js) on focus change, every 10 s, and on the Refresh icon;
-//   python3 -I probe.py (bounded transcript read) on focus change, every 20 s, and on the Refresh icon;
+//   python3 -I probe.py (py -3 -I on Windows; bounded transcript read) on focus change, every 20 s, and on the Refresh icon;
 //   hc send <agent> <prompt> only on the second click of a draft button.
 
 import { View, div } from "gpui-kit";
@@ -11,6 +11,7 @@ import { exec, spaces, panes, focused, agents, terminals, theme, appHome, readTe
 import {
   gitArgs, parseStatus, parseNumstat, splitDiff, diffSignatures, buildFiles, countLines, EMPTY_TREE,
   parseStore, parseStat, readable, statSig, visibleIn, marksFor, isViewed, setMark, expireMarks, viewedCount, visibleFiles, totals, splitTurns, buildPrompt,
+  missingProgram, missingText, pythonCommands,
 } from "./lib/logic.js";
 import { TYPE, SPACE, MINUS, mono, metaColor, diffStat, button, panelHeader, sectionLabel, emptyState, noRepoState } from "./lib/panel-ui.js";
 
@@ -135,8 +136,8 @@ export default class Review extends View {
         this.gitError = null; this.noRepo = false;
         const files = this.files, expired = expireMarks(this.marks, root, files);
         if (expired) { this.marks = expired; this.persist((s) => expireMarks(s, root, files), cx); }
-      } catch {
-        if (key === this.key) this.gitError = "Could not read the changes."; this.noRepo = false;
+      } catch (e) {
+        if (key === this.key) this.gitError = missingProgram(e) ? missingText("git") : "Could not read the changes."; this.noRepo = false;
       } finally {
         this.busy.git = false;
         cx.notify();
@@ -151,8 +152,13 @@ export default class Review extends View {
     for (let i = 0; i < paths.length; i += 100) {
       const batch = paths.slice(i, i + 100);
       let list = null;
-      for (const fmt of STAT_FORMATS) {
-        const r = await exec("stat", [...fmt, "--", ...batch], { cwd: root, on, timeout: 30_000 }).catch(() => null);
+      // No stat here (Windows without Git's usr\bin): asked once, then said under Changes.
+      for (const fmt of on || !this.noStat ? STAT_FORMATS : []) {
+        const r = await exec("stat", [...fmt, "--", ...batch], { cwd: root, on, timeout: 30_000 }).catch((e) => {
+          if (!on && missingProgram(e)) this.noStat = true;
+          return null;
+        });
+        if (!on && this.noStat) break;
         list = r && r.code === 0 ? parseStat(r.stdout, batch.length) : null;
         if (list) break;
       }
@@ -235,7 +241,11 @@ export default class Review extends View {
         const args = ["-I", `${DIR()}/probe.py`, "turns", "--cwd", src.cwd, "--turns", String(TURNS)];
         if (this.root) args.push("--root", this.root);
         if (src.pid) args.push("--pid", String(src.pid));
-        const r = await exec("python3", args, { timeout: 30_000 });
+        let r = null;
+        for (const [cmd, pre] of pythonCommands(window()?.platform ?? "macos")) {
+          try { r = await exec(cmd, [...pre, ...args], { timeout: 30_000 }); break; } catch (e) { if (!missingProgram(e)) throw e; }
+        }
+        if (!r) { if (key === this.key) { this.turns = []; this.session = { failed: true, why: missingText("python3", window()?.platform ?? "macos") }; } return; }
         const data = JSON.parse(r.stdout.trim() || "{}");
         if (key !== this.key) return;
         if (r.code !== 0 || data.error) throw new Error("probe");
@@ -286,8 +296,8 @@ export default class Review extends View {
       try {
         const r = await exec("hc", ["send", a.address, a.text], { timeout: 15_000 });
         this.note = r.code === 0 ? `Sent to ${a.name}.` : "Could not send the prompt.";
-      } catch {
-        this.note = "Could not send the prompt.";
+      } catch (e) {
+        this.note = missingProgram(e) ? missingText("hc") : "Could not send the prompt.";
       } finally {
         this.armed = null;
         this.busy.send = false;
@@ -366,7 +376,7 @@ export default class Review extends View {
   changesSection(t) {
     if (!this.files && !this.gitError) return this.section(t, "sec-changes", "Changes", this.dim(t, "Reading changes…"));
     if (!this.root) {
-      return this.section(t, "sec-changes", "Changes", emptyState({ id: "git-error", tone: "error", title: "Could not read the changes", body: "Try Refresh in a moment." }, t));
+      return this.section(t, "sec-changes", "Changes", emptyState({ id: "git-error", tone: "error", title: "Could not read the changes", body: this.gitError === missingText("git") ? this.gitError : "Try Refresh in a moment." }, t));
     }
     const marks = marksFor(this.marks, this.root);
     const only = this.turnPaths();
@@ -392,6 +402,7 @@ export default class Review extends View {
     else if (!rows.length) body.child(this.dim(t, "Every file here is viewed."));
     body.children(rows.slice(0, MAX_ROWS).map((f, i) => this.fileRow(t, f, marks, i)));
     if (rows.length > MAX_ROWS) body.child(this.dim(t, `Showing the first ${MAX_ROWS} of ${rows.length} files.`));
+    if (this.noStat && !location().on) body.child(this.dim(t, missingText("stat")));
     body.child(this.dim(t, "Click a name to copy its path."));
     return this.section(t, "sec-changes", "Changes", body,
       this.branch ? mono(div().min_w(0).truncate().text_size(TYPE.xs).text_color(this.meta(t)).child(this.branch)) : null);
@@ -402,7 +413,7 @@ export default class Review extends View {
     if (location().on) body = this.dim(t, "Remote space: the agent's transcript is read on this computer only.");
     else if (!this.turns) body = this.dim(t, "Reading turns…");
     else if (!this.session) body = this.dim(t, "No Claude Code session found for this space.");
-    else if (this.session.failed) body = this.dim(t, "Could not read the session.");
+    else if (this.session.failed) body = this.dim(t, this.session.why ?? "Could not read the session.");
     else if (!this.turns.length) body = this.dim(t, "No turns yet.");
     else {
       body = v_flex().gap(2).text_size(TYPE.sm).children(this.turns.map((turn, i) => {

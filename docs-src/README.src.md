@@ -28,7 +28,7 @@ The terminal menu, with new space, keybinds and the themes:
 
 ## Install
 
-Paste the line into an agent running inside Herdr. It reads Herdr's own instructions, copies the files into `~/.config/herdr-app`, merging any keys. Your current layout stays as it was.
+Paste the line into an agent running inside Herdr. It reads Herdr's own instructions and copies the files into `~/.config/herdr-app`, merging any keys. Your current layout stays as it was.
 
 The whole layout:
 
@@ -101,23 +101,44 @@ Each folder has a RECIPE.md that describes the item and what it runs.
 
 ## Requirements
 
-You need Herdr. The layout is drawn for macOS: it leaves room for the window buttons, and several mods use macOS tools such as `open` and `/usr/bin/trash`. drover-overview also reads Linux machines.
+You need Herdr. drover is built and used on macOS. Tests cover the Linux and Windows code paths with stand-in tools, but nobody has run them on those systems yet, and they have the limits listed below. On macOS the tab row leaves room for the window buttons. On Linux and Windows it draws its own minimize, maximize and close buttons.
 
-The tools each item calls:
+Keys: every drover shortcut is a `cmd` chord on macOS. Linux and Windows get a Ctrl chord next to each one, because Herdr reads `cmd` as the Super or Windows key there. `cmd-X` becomes `ctrl-shift-X` and `cmd-shift-X` becomes `ctrl-alt-shift-X`, so Go to is `ctrl-shift-k` and Git is `ctrl-alt-shift-g`. `cmd-alt-X` also moves to a `ctrl-alt-shift` chord, because on Windows Ctrl+Alt is AltGr and types characters on many keyboard layouts: Open with is `ctrl-alt-shift-w`, Open in is `ctrl-alt-shift-i`, History `ctrl-alt-shift-y` and Simulator `ctrl-alt-shift-s`. In `keys.json` these extra chords are written with `secondary`, for example `secondary-alt-shift-v`, and `secondary` is Cmd on macOS. So macOS gets them too: Cmd+Alt+Shift chords that do the same as the Cmd ones, and `ctrl-shift-k`, which opens Go to instead of reaching the terminal. Keys inside a single panel, such as save in the viewer, also use `secondary`. The panel keys that were `cmd-alt` stay so on macOS and are `ctrl-alt-shift` elsewhere. If a chord clashes with something you use, change it in `keys.json`.
+
+The tools each item calls, on macOS and Linux:
 
 - drover (the layout): git, python3, lsof and ps. gh for pull requests and Dispatch, sqlite3 for the Data panel, xcrun or adb for the Simulator panel. zoxide and ripgrep are used when present.
 - drover-git: git. gh or glab to list pull requests; without them a button opens the forge page.
-- drover-viewer: nothing beyond Herdr. `file` and ripgrep are used when present.
+- drover-viewer: nothing beyond Herdr on macOS. `file` and ripgrep are used when present.
 - drover-data: git, sqlite3, find and realpath.
 - drover-ports: lsof and ps.
 - drover-pulls: git and gh, logged in.
 - drover-worktrees: git. gh adds pull request tags.
 - drover-review: git, python3 and stat. The turns section reads Claude Code transcripts.
-- drover-overview: on macOS sysctl, vm_stat, ps and lsof; on Linux /proc and ss, and nvidia-smi for a GPU.
+- drover-overview: on macOS sysctl, vm_stat, ps and lsof; on Linux /proc and ss (or lsof), and nvidia-smi for a GPU.
 - drover-composer: nothing beyond Herdr.
 - drover-dispatch: git and gh, logged in.
 - drover-agents: python3 and git.
 - drover-sim: for iOS, macOS with Xcode (`xcrun simctl`, and `xcrun swiftc` to build the live view helper on first use). For Android, `adb`.
+
+On Linux, opening files and links needs `xdg-open` from xdg-utils. Move to Trash uses `gio trash` or `trash-put` from trash-cli, and with neither the menu item says what to install. drover-ports falls back to ss and ps when lsof is missing. iOS simulators need macOS, so the Simulator panel shows Android only, at about one frame a second.
+
+On Windows, install Git for Windows and put its `usr\bin` folder on PATH next to git, gh and Herdr's `hc`. Many mods use the `sh`, `env`, `stat`, `find`, `wc`, `tail`, `sed` and `cp` from there. Files and links open with `explorer.exe`. A path with a comma is not opened or shown in Explorer, because Explorer reads the comma as a separator, and a file that Windows would run as a program, such as a script or installer, is not opened; you can copy the path instead. Move to Trash sends the item to the Recycle Bin through PowerShell. Windows would delete an item for good when it can't keep it, so the menu says it can't move the item to the Recycle Bin and leaves it alone in those cases: on a network share or a removable drive, when that drive's Recycle Bin is set to delete files at once, when the item is at least as big as the Recycle Bin, or when the Recycle Bin settings can't be read. Where a tool is missing, the panel says what it needs. Some parts do not work on Windows yet, and the panel says so:
+
+- drover-viewer: opens no file without the Git for Windows tools above.
+- drover-git: fetch, pull and push run git through `env`.
+- drover-files: the quick filter needs `sh` and `find`. Network folders (`\\server\share`) are not shown.
+- drover-open: no editor rows, and `C:\` paths are not looked up.
+- drover-projects: folders on this computer are not listed. Other machines are.
+- drover-arrange: reading the split layout needs `sh` and `hc`.
+- drover-data: the SQLite and TODO views need find and realpath.
+- drover-dispatch: setting up a worktree is refused.
+- drover-worktrees: creating and removing a worktree on this computer is refused. Spaces on another machine work.
+- drover-history: the "This space" filter. All spaces works. The indexer runs with `py -3` or `python`.
+- drover-ports and drover-overview: listening ports come from netstat and tasklist, with no folder, CPU or memory. Stop asks the process to close and does not force it, so many console programs stay running.
+- drover-agents and drover-review: both read transcripts with Python. drover-agents tries `py -3` and then `python3`. Files whose type Windows would run as a program, network paths and paths with a comma are not opened from it; it offers Copy path instead.
+- drover-sim: Android only, as on Linux.
+- The sidebar shows project icons as a plain folder and favicons as letters.
 
 ## License
 

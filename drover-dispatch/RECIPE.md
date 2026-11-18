@@ -43,6 +43,7 @@ What it touches:
 
 ## Watch out
 
+- Set up works on macOS and Linux. On Windows it is refused with a one-line reason, because its folder checks use `/` paths, `realpath` and `test`.
 - The repository needs a github.com remote and `gh` must be signed in. The dialog says which one is missing.
 - The worktrees folder must sit inside the repository and not inside `.git`, and no part of it may be a symlink.
 - Starting an agent is off by default. The first message goes out only when the agent shows its prompt and is idle, otherwise nothing is sent and the dialog says so.

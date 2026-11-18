@@ -6,7 +6,16 @@ import { keys, window } from "herdr";
 
 // An action's key as the new menu writes it: ⇧⌘O. Read from the bindings, so a rebound key says so.
 export function keyOf(action) {
-  return keyLabel(keys().find(b => b.action === action)?.keys ?? "");
+  return keyLabel(pickBinding(keys().filter(b => b.action === action), window()?.platform ?? "macos")?.keys ?? "");
+}
+
+// An action can have a macOS chord and a Linux and Windows one. This platform's: on macOS one held with cmd or secondary,
+// elsewhere one with no cmd, super or win (secondary is ctrl there). Else the first.
+export function pickBinding(list, platform) {
+  const held = (b) => String(b?.keys ?? "").trim().split(/\s+/).flatMap(s => s.split("-").slice(0, -1)).map(m => m.toLowerCase());
+  const cmd = (m) => m === "cmd" || m === "super" || m === "win";
+  const fits = platform === "macos" ? (b) => held(b).some(m => cmd(m) || m === "secondary") : (b) => !held(b).some(cmd);
+  return list.find(fits) ?? list[0] ?? null;
 }
 
 // Keys as keys.json writes them (`cmd-shift-o`), as this platform names them.

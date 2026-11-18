@@ -314,3 +314,18 @@ export function visibleIn(node, mod) {
   };
   return walk(node, true) ?? true;
 }
+
+// exec rejects with "cannot start <program>: program not found" when a program is not installed.
+export const missingProgram = (e) => /program not found/.test(String(e?.message ?? e));
+
+// What the panel says when a program it needs is not installed, by window platform.
+export function missingText(program, platform) {
+  if (program === "git") return "Needs git. Install Git and put it on PATH.";
+  if (program === "hc") return "Needs hc, Herdr's command line tool, on PATH.";
+  if (program === "stat") return "Line counts for new files need stat. Put Git for Windows' usr\\bin on PATH.";
+  if (platform === "macos") return "Could not read the session."; // macOS keeps its old wording
+  return platform === "windows" ? "Needs Python 3. Install it from python.org with the py launcher." : "Needs python3 on PATH.";
+}
+
+// How to start Python 3, tried in order: Windows' py launcher first, as python.org installs no python3.exe.
+export const pythonCommands = (platform) => (platform === "windows" ? [["py", ["-3"]], ["python3", []]] : [["python3", []]]);

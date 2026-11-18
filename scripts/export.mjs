@@ -370,7 +370,8 @@ function copyGallery(repo, w) {
   let n = 0;
   (function walk(dir, rel) {
     for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-      if (e.isSymbolicLink() || e.name === ".DS_Store") continue;
+      // Dot entries (.DS_Store, hook state such as .omc) are never gallery text.
+      if (e.isSymbolicLink() || e.name.startsWith(".")) continue;
       const p = path.join(dir, e.name);
       if (e.isDirectory()) { walk(p, rel ? `${rel}/${e.name}` : e.name); continue; }
       const name = e.name.endsWith(".src.md") ? e.name.slice(0, -".src.md".length) + ".md" : e.name;

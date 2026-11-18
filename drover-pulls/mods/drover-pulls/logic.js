@@ -294,6 +294,25 @@ export function threadsArgs(repo, number) {
 
 export const safeUrl = (url) => (/^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+$/.test(String(url ?? "")) ? url : null);
 
+/** The program that opens a link in the browser, per window platform ("macos" | "linux" | "windows"). -> [command, args] */
+export function openUrlArgv(platform, url) {
+  if (platform === "windows") return ["explorer.exe", [url]];
+  if (platform === "linux") return ["xdg-open", [url]];
+  return ["open", [url]];
+}
+
+/**
+ * What to say when opening a link went wrong, from exec's result or error; null when it worked or on
+ * macOS, which stays quiet as before. explorer.exe exits 1 even when it opened the link.
+ */
+export function openUrlProblem(platform, result, error) {
+  if (platform === "macos") return null;
+  const tool = platform === "windows" ? "explorer.exe" : "xdg-open";
+  if (error) return /program not found/.test(String(error?.message ?? error)) ? (platform === "linux" ? "Install xdg-utils to open links." : `${tool} was not found.`) : "Could not open the link.";
+  if (platform === "windows" || result?.code === 0) return null;
+  return "Could not open the link: xdg-open found no browser.";
+}
+
 /** Quiet one-liners for gh failures. */
 export function ghProblem(stderr) {
   const s = String(stderr ?? "");

@@ -90,6 +90,7 @@ const safe = (fn, fallback) => {
     return fallback;
   }
 };
+const platform = () => safe(() => hostWindow().platform, "macos");
 
 export default class Projects extends View {
   init(p, cx) {
@@ -301,6 +302,12 @@ export default class Projects extends View {
   loadMachine(cx, machine, force) {
     const d = this.dataOf(machine);
     const info = this.machineInfo(machine);
+    if (!L.listsFolders(platform(), machine)) {
+      d.note = "Folders on this Windows computer aren't listed: pick another machine in the strip.";
+      d.scan = "error";
+      this.rev++;
+      return;
+    }
     if (info.layout !== "ready" && machine) {
       d.note = info.layout === "loading"
         ? `Connecting to ${info.label}… showing pins and recent visits.`
@@ -401,7 +408,7 @@ export default class Projects extends View {
     const paths = (this.markerTodo ?? []).filter((p) => !d.markers.has(p));
     // An unreachable machine is never asked; its folders stay listed.
     if (machine && this.machineInfo(machine).layout !== "ready") return false;
-    if (!paths.length || d.markerBusy) return false;
+    if (!paths.length || d.markerBusy || !L.listsFolders(platform(), machine)) return false;
     d.markerBusy = true;
     try {
       const r = await exec("find", L.markerArgs(paths), { on: machine, timeout: 8000 });
@@ -567,9 +574,10 @@ export default class Projects extends View {
           if (c[0] === "run") run(c[1], c[2]);
           else if (c[0] === "overlay") openOverlay(c[1]);
           else if (c[0] === "exec") {
-            const r = await exec(c[1], c[2], { timeout: 10000 }).catch(() => null);
-            if (!r || r.code !== 0) {
-              this.setStatus("The file manager couldn't show that folder.", "error");
+            const r = await exec(c[1], c[2], { timeout: 10000 }).catch((e) => (e instanceof Error ? e : new Error(String(e))));
+            const failed = L.revealOutcome(ctx.platform, r);
+            if (failed) {
+              this.setStatus(failed, "error");
               return;
             }
           }
@@ -607,6 +615,7 @@ export default class Projects extends View {
       try {
         const h = await this.homeOf(machine);
         const paths = L.ROOT_SUGGESTIONS.map((s) => L.expandPath(s, h)).filter(Boolean);
+        if (!paths.length || !L.listsFolders(platform(), machine)) throw new Error("nothing to look for");
         const r = await exec("find", [...paths, "-maxdepth", "0", "-type", "d"], { on: machine, timeout: 8000 });
         const exists = new Set(r.stdout.split("\n").filter(Boolean));
         const seen = new Set();

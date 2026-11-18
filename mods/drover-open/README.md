@@ -27,12 +27,15 @@ Quotes, brackets and trailing punctuation around a selection are dropped.
   ```
   `cwd` resolves relative paths, `on` is the machine (a space's `machine`), `pane` is where the
   viewer opens beside. `ask: true` always shows the chooser.
-- Open in an editor (macOS): local folders and files also get one "Open in <Editor>" row per installed
-  editor (VS Code, Cursor, Zed, Windsurf, Sublime Text, Nova, BBEdit, JetBrains IDEs, Android Studio,
-  Xcode, Fleet, VSCodium; found in the system or home Applications folder, rechecked every 10 minutes).
-  `mode: "editors"` shows only those rows and the system app, titled "Open in". The run is
-  `open -a <App> <path>` (no shell); the choice is kept in the shared key `drover-open.editor`.
-  Remote targets show the rows disabled ("this machine only") and run nothing.
+- Open in an editor (macOS and Linux): local folders and files also get one "Open in <Editor>" row per
+  installed editor, rechecked every 10 minutes. On macOS that is VS Code, Cursor, Zed, Windsurf, Sublime
+  Text, Nova, BBEdit, JetBrains IDEs, Android Studio, Xcode, Fleet and VSCodium, found in the system or
+  home Applications folder, and the run is `open -a <App> <path>`. On Linux it is the editors whose
+  launcher one `which` call finds on PATH (`code`, `cursor`, `zed` or `zeditor`, `windsurf`, `subl`,
+  `codium`), and the run is `<launcher> <path>`. No shell either way.
+  `mode: "editors"` shows only those rows and the system app, titled "Open in". The choice is kept in
+  the shared key `drover-open.editor`. Remote targets show the rows disabled ("this machine only") and
+  run nothing.
 
 Keys: ↑/↓ move, Enter runs, 1 to 9 run that row, A toggles "always", Esc closes.
 
@@ -51,7 +54,10 @@ unticked there; Forget choices clears everything. Choices live in
 - Credential files and folders (`.env*`, keys, `.ssh`, `.aws`, keychains, `*.sqlite`, `*.db`, …) are
   never opened, also when a harmless name links to one. They can still be revealed or copied.
 - Paths are looked up with a fixed `sh` script that receives the path as an argument; the system app
-  is started with an argument list. "Open with system app" works on this machine only.
+  is started with an argument list (`open` on macOS, `xdg-open` on Linux, `explorer.exe` on Windows).
+  "Open with system app" works on this machine only. Scripts, apps and other launchers get "Reveal in
+  Finder" ("Show in file manager" on Linux, "Show in Explorer" on Windows) instead; on Windows that
+  also covers `.lnk`, `.js`, `.hta`, `.reg` and the other files Explorer would run.
 - "Search in files" runs `rg --fixed-strings` (or `grep -F` when ripgrep is missing) in the pane's
   folder with credential files excluded, at most 5 hits per file and 200 in all.
 
@@ -60,7 +66,26 @@ unticked there; Forget choices clears everything. Choices live in
 `drover-viewer` (props `{ file, line?, col?, on? }`) and `drover-files` (props `{ folder, reveal?, on? }`)
 for the viewer and files actions; those prop names are the contract this mod assumes. Without those
 mods installed, the viewer, new tab and files actions do not show the target.
-`sh` on the target machine; `rg` is optional.
+`sh` on the target machine; `rg` is optional. On Linux, `xdg-open` (xdg-utils) for the system app and
+the file manager.
+
+## Platforms
+
+macOS has everything above. Linux has everything too, with editors found by their launcher on PATH.
+JetBrains IDEs, Fleet, Nova, BBEdit, Xcode and Android Studio have no Linux row.
+
+Windows works with some limits:
+
+- No editor rows. The editor launchers there are `.cmd` files, which would hand the path to `cmd.exe`.
+- Paths on this computer are read only when they start with `/`. Drive paths such as `C:\work\a.txt`
+  or `C:/work/a.txt`, and relative paths in a pane whose folder is a drive path, show "Relative path,
+  but no folder is known". Links, remote paths and copying still work.
+- Checking a path needs `sh`: install Git for Windows and put its `usr\bin` on PATH. Without it the
+  chooser says so.
+- Git Bash paths such as `/c/work` are handed to Explorer as `\c\work`, which it does not find.
+- Explorer splits its arguments at commas, so Open with system app and Show in Explorer refuse a
+  path with a comma. Copy the path instead.
+- Search in files needs `rg` or `grep` on PATH.
 
 ## License
 

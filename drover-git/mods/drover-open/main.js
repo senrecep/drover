@@ -17,9 +17,12 @@ import * as fs from "fs/promises";
 import { stripControl, redact, denyReason } from "./lib/guard.js";
 import { tilde, basename } from "./lib/paths.js";
 import { resolveIcon } from "./lib/icons.js";
-import { EDITOR_KEY, detect, listingProbe, lsEntries, editorCache, editorByName, editorOfAction, isEditorAction, editorOpenArgv } from "./lib/editors.js";
 import {
-  parseTarget, actionsFor, prefKey, displayUrl, urlHost, searchQueryFor, revealFolder, systemOpenArgv, systemRevealArgv, infoRisk, describeLocation, reselect, MAX_TEXT,
+  EDITOR_KEY, detect, detectCli, whichArgv, whichHits, editorPlatform, listingProbe, lsEntries, editorCache, editorByName, editorOfAction, isEditorAction, editorOpenArgv,
+} from "./lib/editors.js";
+import {
+  parseTarget, actionsFor, prefKey, displayUrl, urlHost, searchQueryFor, revealFolder, systemOpenArgv, systemRevealArgv, infoRisk, finderLabel, missingOpener, explorerProblem,
+  describeLocation, reselect, MAX_TEXT,
 } from "./classify.js";
 import { loadPrefs, savePrefs, withChoice, forgetAll } from "./prefs.js";
 import { rgArgv, grepArgv, cleanQuery, parseResults, outcome, MAX_RESULTS } from "./search.js";
@@ -45,6 +48,28 @@ const prefsFile = () => `${appHome()}/data/${MOD}/prefs.json`;
 const editors = editorCache();
 // fs.stat can't see outside home, so editor apps are found by listing their folders (argv, local).
 const lsDir = async (dir) => { const r = await exec("ls", ["-1", dir], { timeout: 5000 }); return r?.code === 0 ? lsEntries(r.stdout) : new Set(); };
+// Linux: the editor launchers on PATH, from one `which` call; no `which` finds none.
+const whichFound = async () => {
+  try { const [c, a] = whichArgv(); const r = await exec(c, a, { timeout: 5000 }); return whichHits(r?.stdout); } catch (e) { return new Set(); }
+};
+const loadEditors = (ctx) => (ctx.platform === "linux"
+  ? whichFound().then((found) => detectCli((cli) => found.has(cli), ctx.platform))
+  : detect(listingProbe(lsDir), ctx.home, ctx.platform));
+// exec rejects with this when the program is not installed.
+const notFound = (e) => /program not found/i.test(String(e?.message || e || ""));
+// The system opener (open, xdg-open, explorer.exe), local only. -> { ok, error? }
+async function runOpener(cmd, args, platform) {
+  let r;
+  try {
+    r = await exec(cmd, args, { timeout: 15000 });
+  } catch (e) {
+    if (notFound(e)) return { ok: false, error: missingOpener(cmd) };
+    throw e;
+  }
+  // explorer.exe reports 1 even when it opened the file
+  if (r.code !== 0 && platform !== "windows") return { ok: false, error: `${cmd} failed: ${shown((r.stderr || r.stdout || `exit ${r.code}`).trim(), 160)}` };
+  return { ok: true };
+}
 const lastEditor = () => { const v = safe(() => shared(EDITOR_KEY), null); return typeof v === "string" && editorByName(v) ? v : null; };
 
 function claimPress() {
@@ -84,7 +109,7 @@ export default class DroverOpen extends View {
     this.fromProps = typeof p.target === "string";
     this.ask = p.ask === true;
     this.editorsMode = p.mode === "editors";
-    this.editors = (this.ctx.platform === "macos" && editors.peek(Date.now())) || [];
+    this.editors = (editorPlatform(this.ctx.platform) && editors.peek(Date.now())) || [];
     this.at = 0;
     this.navigated = false; // the user moved the selection with the arrow keys: list updates keep it
     this.always = false;
@@ -117,9 +142,9 @@ export default class DroverOpen extends View {
       this.setTarget(this.fromProps ? p.target : this.readClipboard(cx), cx);
     }
 
-    if (this.ctx.platform === "macos") {
+    if (editorPlatform(this.ctx.platform)) {
       cx.spawn(async (cx) => {
-        const list = await editors.get(Date.now(), () => detect(listingProbe(lsDir), this.ctx.home, this.ctx.platform));
+        const list = await editors.get(Date.now(), () => loadEditors(this.ctx));
         // Rows arrive late: keep the row the user moved to, else start over at the preferred one.
         const prevId = this.mode === "choose" ? this.actions()[this.at]?.id : null;
         this.editors = Array.isArray(list) ? list : [];
@@ -187,7 +212,9 @@ export default class DroverOpen extends View {
       try {
         r = await exec("sh", ["-c", CHECK_SCRIPT, MOD, cand], { on: this.ctx.on, timeout: 8000 });
       } catch (e) {
-        info = { status: "error", abs: cand, error: `Could not check this path: ${errText(e)}` };
+        // Windows has no sh unless Git for Windows' usr\bin is on PATH.
+        const error = notFound(e) && !this.ctx.on && this.ctx.platform === "windows" ? "Checking a path needs sh. Install Git for Windows and put its usr\\bin on PATH." : `Could not check this path: ${errText(e)}`;
+        info = { status: "error", abs: cand, error };
         break;
       }
       if (gen !== this.gen) return;
@@ -374,20 +401,19 @@ export default class DroverOpen extends View {
       case "system": {
         if (this.ctx.on) return { ok: false, error: "The system app opens files on this machine only." };
         if (i.deny) return { ok: false, error: `Refused: ${i.deny}` };
-        const risk = infoRisk(i);
-        if (risk) return { ok: false, error: `Not opened: ${risk}. Use Reveal in Finder instead.` };
+        const risk = infoRisk(i, this.ctx.platform);
+        if (risk) return { ok: false, error: `Not opened: ${risk}. Use ${finderLabel(this.ctx.platform)} instead.` };
+        const comma = explorerProblem(this.ctx.platform, i.abs);
+        if (comma) return { ok: false, error: comma };
         const [cmd, args] = systemOpenArgv(this.ctx.platform, i.abs);
-        const r = await exec(cmd, args, { timeout: 15000 });
-        // explorer.exe reports 1 even when it opened the file
-        if (r.code !== 0 && this.ctx.platform !== "windows") return { ok: false, error: `${cmd} failed: ${shown((r.stderr || r.stdout || `exit ${r.code}`).trim(), 160)}` };
-        return { ok: true };
+        return runOpener(cmd, args, this.ctx.platform);
       }
       case "finder": {
         if (this.ctx.on) return { ok: false, error: "The file manager shows files on this machine only." };
+        const comma = explorerProblem(this.ctx.platform, i.abs);
+        if (comma) return { ok: false, error: comma };
         const [cmd, args] = systemRevealArgv(this.ctx.platform, i.abs);
-        const r = await exec(cmd, args, { timeout: 15000 });
-        if (r.code !== 0 && this.ctx.platform !== "windows") return { ok: false, error: `${cmd} failed: ${shown((r.stderr || r.stdout || `exit ${r.code}`).trim(), 160)}` };
-        return { ok: true };
+        return runOpener(cmd, args, this.ctx.platform);
       }
       case "search":
         return this.startSearch(searchQueryFor(t), cx);
@@ -397,14 +423,22 @@ export default class DroverOpen extends View {
     }
   }
 
-  // `open -a <App> <path>`: argv only, local only, never a protected path. The choice is remembered for the top bar.
+  // `open -a <App> <path>` (macOS) or `<cli> <path>` (Linux): argv only, local only, never a protected path.
+  // The choice is remembered for the top bar.
   async openInEditor(editor, i) {
-    if (!editor || !this.editors.some((e) => e.id === editor.id)) return { ok: false, error: "That editor is not installed." };
+    const found = editor ? this.editors.find((e) => e.id === editor.id) : null;
+    if (!found) return { ok: false, error: "That editor is not installed." };
     if (this.ctx.on) return { ok: false, error: "Editors open folders on this machine only." };
     if (i.deny) return { ok: false, error: `Refused: ${i.deny}` };
     if (i.status !== "dir" && i.status !== "file") return { ok: false, error: "Nothing to open here." };
-    const [cmd, args] = editorOpenArgv(editor.name, i.abs);
-    const r = await exec(cmd, args, { timeout: 15000 });
+    const [cmd, args] = editorOpenArgv(editor.name, i.abs, { platform: this.ctx.platform, cli: found.cli });
+    let r;
+    try {
+      r = await exec(cmd, args, { timeout: 15000 });
+    } catch (e) {
+      if (notFound(e)) return { ok: false, error: `${editor.name}: ${cmd} is no longer on PATH.` };
+      throw e;
+    }
     if (r.code !== 0) return { ok: false, error: `${editor.name} did not open: ${shown((r.stderr || r.stdout || `exit ${r.code}`).trim(), 160)}` };
     safe(() => setShared(EDITOR_KEY, editor.name));
     return { ok: true };
@@ -460,7 +494,7 @@ export default class DroverOpen extends View {
         const [c, a] = grepArgv(q);
         res = await exec(c, a, opts);
       } catch (e) {
-        failure = errText(e);
+        failure = notFound(e) ? "neither rg nor grep was found. Install ripgrep." : errText(e);
       }
     }
     if (gen !== this.searchGen) return;
@@ -524,8 +558,10 @@ export default class DroverOpen extends View {
     const i = this.info || {};
     if (this.editorsMode) {
       if (this.ctx.on) return { level: "info", text: "Editors open folders on this machine only: this space is on another machine." };
-      if (this.ctx.platform !== "macos") return { level: "info", text: "Opening in an editor works on macOS only." };
-      if (!this.editors.length && i.status !== "checking") return { level: "info", text: "No supported editor found in Applications." };
+      if (!editorPlatform(this.ctx.platform)) return { level: "info", text: "Opening in an editor works on macOS and Linux only." };
+      if (!this.editors.length && i.status !== "checking") {
+        return { level: "info", text: this.ctx.platform === "linux" ? "No supported editor found on PATH (code, cursor, zed, subl, windsurf, codium)." : "No supported editor found in Applications." };
+      }
     }
     if (i.deny) return { level: "error", text: `Protected (${i.deny}): it can be revealed or copied, not opened.` };
     if (i.status === "error") return { level: "error", text: i.error };

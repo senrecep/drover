@@ -3,13 +3,13 @@
 // place "none" (a layout block or the dialog overlay puts it on screen).
 import { View, div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
-import { exec, hc, spaces, panes, agents, theme, run, layout, props, closeOverlay } from "herdr";
+import { exec, hc, spaces, panes, agents, theme, run, layout, props, closeOverlay, window } from "herdr";
 import { TYPE, mono, metaColor, panelHeader, emptyState, button } from "./lib/panel-ui.js";
 import {
   POLL_MS, reposFromRemotes, spaceFolder, summarizeRollup, rollupLabel, reviewLabel, filterPrs,
   buildStack, placesOnBranch, soleAgent, ciFixText, unresolvedComments, reviewText, mergeMethod,
   autoMergeBlock, autoMergeArgs, freshAutoMergeBlock, viewArgs, sendArgs, listArgs, requestedArgs, repoArgs, threadsArgs, safeUrl,
-  ghProblem, ago, visibleIn,
+  openUrlArgv, openUrlProblem, ghProblem, ago, visibleIn,
 } from "./logic.js";
 
 const MOD = "drover-pulls";
@@ -248,9 +248,19 @@ export default class Pulls extends View {
 
   // --- actions (explicit clicks only) ---
 
-  openUrl(pr) {
+  openUrl(key, pr, cx) {
     const url = safeUrl(pr.url);
-    if (url) exec("open", [url]).catch(() => null);
+    if (!url) return;
+    const platform = window()?.platform ?? "macos";
+    const [cmd, args] = openUrlArgv(platform, url);
+    cx.spawn(async (cx) => {
+      let r = null, err = null;
+      try { r = await exec(cmd, args); } catch (e) { err = e; }
+      const text = openUrlProblem(platform, r, err);
+      if (!text) return;
+      this.message = { key, text, bad: true };
+      cx.notify();
+    });
   }
 
   goToSpace(place) {
@@ -506,7 +516,7 @@ export default class Pulls extends View {
             : "not checked out in an open space",
           places.length ? t.accent : meta)))
       .child(h_flex().flex_wrap().gap(6).pt(4)
-        .child(this.button("act-open", "Open", t, () => this.openUrl(pr), { disabled: !safeUrl(pr.url), tooltip: safeUrl(pr.url) ? undefined : "No usable link for this pull request" }))
+        .child(this.button("act-open", "Open", t, (cx) => this.openUrl(key, pr, cx), { disabled: !safeUrl(pr.url), tooltip: safeUrl(pr.url) ? undefined : "No usable link for this pull request" }))
         .child(this.button("act-go", "Go to space", t, () => this.goToSpace(places[0]), { disabled: places.length === 0, tooltip: places.length === 0 ? "Not checked out in an open space" : undefined })))
       .child(v_flex().gap(4)
         .child(this.button("act-merge", busy && !c ? "Working…" : merging ? `Confirm auto-merge (${c.method})` : "Enable auto-merge", t,

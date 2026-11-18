@@ -128,9 +128,24 @@ export const OPEN_IN_H = 300;
 
 /** The folder "Open in" acts on: the focused space's folder, else the focused pane's cwd; null hides the button. */
 export function openInFolder(space, focused) {
-  if (typeof space?.folder === "string" && space.folder.startsWith("/")) return space.folder;
+  if (absolute(space?.folder)) return space.folder;
   const cwd = focused?.cwd;
-  return typeof cwd === "string" && cwd.startsWith("/") ? cwd : null;
+  return absolute(cwd) ? cwd : null;
+}
+
+// A whole path: /x, or on Windows C:\x, C:/x or \\server\share.
+const absolute = (p) => typeof p === "string" && /^(?:\/|[A-Za-z]:[\\/]|\\\\[^\\])/.test(p);
+
+/**
+ * keys.json can bind one action twice: a macOS chord and a Linux and Windows one. The one for this
+ * platform: on macOS one held with cmd or secondary, elsewhere one with no cmd, super or win
+ * (secondary is ctrl there); else the first. -> the binding or null.
+ */
+export function pickBinding(list, platform) {
+  const held = (b) => String(b?.keys ?? "").trim().split(/\s+/).flatMap((s) => s.split("-").slice(0, -1)).map((m) => m.toLowerCase());
+  const cmd = (m) => m === "cmd" || m === "super" || m === "win";
+  const fits = platform === "macos" ? (b) => held(b).some((m) => cmd(m) || m === "secondary") : (b) => !held(b).some(cmd);
+  return list.find(fits) ?? list[0] ?? null;
 }
 
 /**

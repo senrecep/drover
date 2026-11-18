@@ -41,6 +41,7 @@ What it touches:
 
 ## Watch out
 
+- On Windows both views need `find` and `realpath`, which Windows does not have, so for folders on this computer the panel says so and runs nothing.
 - Every write is one guarded statement built from quoted identifiers. Free SQL is not accepted.
 - A table's rows are fetched with a byte budget, so a wide table shows fewer than 100 rows per page.
 - If the schema changes while you edit, the view says "Schema changed; reloaded" and drops the edit.

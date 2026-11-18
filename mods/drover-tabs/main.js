@@ -22,7 +22,7 @@ import { TYPE, iconButton, button as textButton, metaColor, sectionLabel, emptyS
 import {
   TEMPLATES_KEY, DIFF_INTERVAL, liveFolder, diffKey, shouldRefresh, diffFromResult, contextTitle, titleFits,
   templateRows, newTabArgs, templatesHeight,
-  EDITOR_KEY, openInSource, editorAppPaths, openInOverlay, openInPlan, openInTip,
+  EDITOR_KEY, openInSource, editorAppPaths, openInOverlay, openInPlan, openInTip, pickBinding,
 } from "./lib/topbar.js";
 
 const MOD = "drover-tabs";
@@ -469,11 +469,13 @@ export default class Tabs extends View {
     // "Panels" is lit while an unpinned panel is open (or Changes behind the chip): the open panel always has a lit control.
     const unpinnedOpen = open !== null && !pinned.includes(open) && !(chipToggles && changesOn);
     const openLabel = unpinnedOpen ? describe(findNode(body, open) ?? { id: open }).label : null;
-    const panelsKey = keys().find(k => k.action === `${MOD}.panels`)?.keys;
+    const panelsKey = pickBinding(keys().filter(k => k.action === `${MOD}.panels`), w?.platform ?? "macos")?.keys
+      ?.replace(/\bsecondary\b/g, (w?.platform ?? "macos") === "macos" ? "cmd" : "ctrl");
     const panelsTip = `${openLabel ? `${openLabel} is open · ` : ""}All panels${panelsKey ? ` (${panelsKey})` : ""}`;
     const title = contextTitle(space);
     const openIn = openInTarget();
-    const openInKey = keys().find(k => k.action === `${MOD}.open-in`)?.keys;
+    const openInKey = pickBinding(keys().filter(k => k.action === `${MOD}.open-in`), w?.platform ?? "macos")?.keys
+      ?.replace(/\bsecondary\b/g, (w?.platform ?? "macos") === "macos" ? "cmd" : "ctrl");
     const showTitle = Boolean(title) && titleFits(this.titleW);
     // Measured tab widths by tab id; tabs that are gone drop out.
     this.tabW ??= new Map();

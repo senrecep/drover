@@ -116,7 +116,7 @@ export function parseLsof(out) {
   return uniquePorts(list);
 }
 
-// `ss -ltnpH`: [{ port, name }]; name is null when ss can't see the owner (another user's process).
+// `ss -ltnp` (the header line is skipped): [{ port, name }]; name is null when ss can't see the owner (another user's process).
 export function parseSs(out) {
   const list = [];
   for (const line of (out ?? "").split("\n")) {
@@ -127,6 +127,38 @@ export function parseSs(out) {
   }
   return uniquePorts(list);
 }
+
+// `netstat -ano` (Windows), TCP rows only: [{ port, pid }]. The state word is translated on non-English
+// Windows, so a listener is known by its foreign address, 0.0.0.0:0 or [::]:0.
+export function parseNetstat(out) {
+  const list = [];
+  for (const line of (out ?? "").split("\n")) {
+    const cols = line.trim().split(/\s+/);
+    if (cols.length < 5 || cols[0].toUpperCase() !== "TCP" || !/^(?:0\.0\.0\.0|\[::\]):0$/.test(cols[2])) continue;
+    const pid = Number(cols[cols.length - 1]);
+    list.push({ port: portOf(cols[1]), pid: Number.isInteger(pid) ? pid : null });
+  }
+  return list;
+}
+
+// `tasklist /FO CSV /NH`: pid -> program name, without ".exe".
+export function parseTasklist(out) {
+  const names = new Map();
+  for (const line of (out ?? "").split("\n")) {
+    const m = line.match(/^"([^"]*)","(\d+)"/);
+    if (m) names.set(Number(m[2]), m[1].replace(/\.exe$/i, ""));
+  }
+  return names;
+}
+
+// Windows listeners with their names: [{ port, name }].
+export const windowsPorts = (netstat, tasklist) => {
+  const names = parseTasklist(tasklist);
+  return uniquePorts(parseNetstat(netstat).map((x) => ({ port: x.port, name: names.get(x.pid) ?? null })));
+};
+
+// The system `uname -s` names; Git Bash, MSYS and Cygwin on Windows count as Windows.
+export const osName = (uname) => (/^(?:MINGW|MSYS|CYGWIN)/i.test(uname ?? "") ? "Windows" : uname || null);
 
 // "now" under a minute, then 2m, 3h, 4d.
 export function ago(ms) {

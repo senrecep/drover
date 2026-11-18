@@ -34,9 +34,9 @@ Every write is checked again first. The dialog reads the repository fresh (a rea
 
 Keys from this item's `keys.json`:
 
-- `cmd-shift-g` opens Git, `cmd-alt-o` opens Open with (and reads the clipboard again while it is open).
-- In the viewer: `cmd-s` save, `cmd-e` next view, `cmd-r` reload, `ctrl--` back, `cmd-alt-r` revert.
-- In the file tree: `cmd-alt-f` filter, `cmd-shift-.` show or hide `.git`, `node_modules` and `.DS_Store`, `cmd-alt-p` stop or start following focus, `cmd-r` refresh.
+- `cmd-shift-g` opens Git, `cmd-alt-o` opens Open with (and reads the clipboard again while it is open). On Linux and Windows they are `ctrl-alt-shift-g` and `ctrl-alt-shift-w`. macOS gets `cmd-alt-shift-g` and `cmd-alt-shift-w` as well.
+- In the viewer: `secondary-s` save, `secondary-e` next view, `secondary-r` reload, `ctrl--` back, `cmd-alt-r` revert (`ctrl-alt-shift-r` on Linux and Windows). `secondary` is Cmd on macOS and Ctrl on Linux and Windows.
+- In the file tree: `cmd-alt-f` filter, `secondary-shift-.` show or hide `.git`, `node_modules` and `.DS_Store`, `cmd-alt-p` stop or start following focus, `secondary-r` refresh. On Linux and Windows the filter and follow keys are `ctrl-alt-shift-f` and `ctrl-alt-shift-p`.
 
 ## Built from
 
@@ -64,10 +64,11 @@ Optional `data/drover-git/settings.json`:
 
 - `fetchPrune` is off by default, so Fetch never deletes remote-tracking refs.
 - The Bitbucket helper must print a JSON array of `{ id, title, author, source, target, state, url }` within 15 seconds. It gets no tokens from the mod.
-- Credential files (`.env*`, keys, `.ssh`, `.aws`, `.netrc`, `*.sqlite`, `*.db` and similar) are never opened by the viewer, the chooser or the tree, also when a harmless name links to one.
+- Credential files (`.env*`, keys, `.ssh`, `.aws`, `.netrc`, `*.sqlite`, `*.db` and similar) are never opened by the viewer, the chooser or the tree, even when a harmless name links to one.
 - Error text has URL user info stripped and secrets masked.
 - Files on another machine open read-only in the viewer.
-- Move to Trash needs `/usr/bin/trash`, which macOS has from version 15. Without it the menu item is hidden.
+- Move to Trash needs `/usr/bin/trash` from macOS 15 or later, and without it the item is hidden. Linux uses `gio trash` or `trash-put`, and says what to install when both are missing. Windows sends the item to the Recycle Bin through PowerShell, with the path passed as data. Windows would delete an item for good when it can't keep it, so in those cases the menu says it can't move the item to the Recycle Bin and leaves it where it is: on a network share or a removable drive, when that drive's Recycle Bin is set to delete files at once, when the item is at least as big as the Recycle Bin, or when the Recycle Bin settings can't be read. Counting a large folder first takes a moment.
+- On Windows, fetch, pull and push run git through `env`, which Git for Windows has in its `usr\bin` folder. Without it on PATH, they fail with a message that says so.
 
 ## Done when
 

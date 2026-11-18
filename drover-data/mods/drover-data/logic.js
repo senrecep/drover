@@ -966,6 +966,12 @@ export function realInside(realDir, paths, reals) {
   return paths.filter((p) => !p.includes("\n") && seen.has(`${dir}/${normalizePath(p)}`));
 }
 
+// Both views check files with GNU find and realpath (and sqlite3 -init /dev/null). Windows has no
+// realpath, and its find.exe is a text search, so on Windows the views say so instead of running them.
+export function localToolsNote(platform) {
+  return platform === "windows" ? "This view needs find and realpath, which Windows does not have. It works on macOS and Linux." : null;
+}
+
 // ---------- polling ----------
 
 export const POLL_MS = 15_000;

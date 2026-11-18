@@ -18,23 +18,95 @@ export function displayBind(host, port) {
 // Wider binds win when IPv4 and IPv6 rows describe the same pid and port.
 const bindRank = (host) => (host === "*" || host === "[::]" || host === "0.0.0.0" ? 2 : LOOPBACK.has(host) ? 0 : 1);
 
-// `lsof -iTCP -sTCP:LISTEN -nP` -> [{ pid, port, bind, command }], one per pid+port.
-export function parseLsof(text) {
+// [{ pid, host, port, command }] -> [{ pid, port, bind, command }], one per pid+port.
+function listeners(found) {
   const byKey = new Map();
-  for (const line of String(text ?? "").split("\n")) {
-    if (!line.includes("(LISTEN)")) continue;
-    const cols = line.trim().split(/\s+/);
-    const pid = Number(cols[1]);
-    const at = cols.lastIndexOf("(LISTEN)");
-    const addr = splitAddress(cols[at - 1]);
-    if (!Number.isInteger(pid) || pid <= 0 || !addr) continue;
-    const key = `${pid}:${addr.port}`;
+  for (const { pid, host, port, command } of found) {
+    if (!Number.isInteger(pid) || pid <= 0) continue;
+    const key = `${pid}:${port}`;
     const prev = byKey.get(key);
-    if (!prev || bindRank(addr.host) > bindRank(prev.host)) {
-      byKey.set(key, { pid, port: addr.port, host: addr.host, bind: displayBind(addr.host, addr.port), command: cols[0] });
+    if (!prev || bindRank(host) > bindRank(prev.host)) {
+      byKey.set(key, { pid, port, host, bind: displayBind(host, port), command });
     }
   }
   return [...byKey.values()].map(({ host, ...r }) => r);
+}
+
+// `lsof -iTCP -sTCP:LISTEN -nP` -> [{ pid, port, bind, command }], one per pid+port.
+export function parseLsof(text) {
+  const found = [];
+  for (const line of String(text ?? "").split("\n")) {
+    if (!line.includes("(LISTEN)")) continue;
+    const cols = line.trim().split(/\s+/);
+    const at = cols.lastIndexOf("(LISTEN)");
+    const addr = splitAddress(cols[at - 1]);
+    if (addr) found.push({ pid: Number(cols[1]), ...addr, command: cols[0] });
+  }
+  return listeners(found);
+}
+
+// Linux without lsof: `ss -ltnp` -> same shape. The header line is skipped (no -H: older iproute2
+// lacks it). "127.0.0.53%lo:53" drops its interface; old ss writes IPv6 bare (":::22", "::1:631"),
+// which becomes "[::]" and "[::1]" like newer ss prints it; one
+// socket can list several processes in users:(("name",pid=N,fd=N),...). Rows without a pid
+// (another user's process) are skipped.
+export function parseSs(text) {
+  const found = [];
+  for (const line of String(text ?? "").split("\n")) {
+    const cols = line.trim().split(/\s+/);
+    if (cols[0] !== "LISTEN") continue;
+    const addr = splitAddress(cols[3]);
+    if (!addr) continue;
+    const bare = addr.host.replace(/%[^\]]*/, "");
+    const host = bare.includes(":") && !bare.startsWith("[") ? `[${bare}]` : bare;
+    for (const m of cols.slice(5).join(" ").matchAll(/\("((?:[^"\\]|\\.)*)",pid=(\d+)/g)) {
+      found.push({ pid: Number(m[2]), host, port: addr.port, command: m[1] });
+    }
+  }
+  return listeners(found);
+}
+
+// Windows: `netstat -ano` -> same shape (command empty; names come from tasklist). A listening
+// TCP row has a foreign address ending in ":0"; the state word itself is translated per
+// language, so it isn't read. Covers IPv4 and IPv6 rows.
+export function parseNetstat(text) {
+  const found = [];
+  for (const line of String(text ?? "").split(/\r?\n/)) {
+    const cols = line.trim().split(/\s+/);
+    if (cols[0] !== "TCP" || cols.length < 5 || !/:0$/.test(cols[2])) continue;
+    const addr = splitAddress(cols[1]);
+    if (addr) found.push({ pid: Number(cols[cols.length - 1]), ...addr, command: "" });
+  }
+  return listeners(found);
+}
+
+// `tasklist /FO CSV /NH` -> Map pid -> { name, rss } ("node.exe" -> "node"; rss in KB from
+// "45,678 K", whatever the thousands separator).
+export function parseTasklist(text) {
+  const out = new Map();
+  for (const line of String(text ?? "").split(/\r?\n/)) {
+    const f = [...line.matchAll(/"((?:[^"]|"")*)"/g)].map((m) => m[1].replace(/""/g, '"'));
+    const pid = Number(f[1]);
+    if (f.length < 5 || !Number.isInteger(pid) || pid <= 0) continue;
+    out.set(pid, { name: f[0].replace(/\.exe$/i, ""), rss: Number(f[4].replace(/\D/g, "")) || 0 });
+  }
+  return out;
+}
+
+// `pwdx <pids>` (procps, used with ss) -> Map pid -> cwd. "1: Permission denied" lines are skipped.
+export function parsePwdx(text) {
+  const out = new Map();
+  for (const line of String(text ?? "").split("\n")) {
+    const m = /^(\d+):\s+(\/.*)$/.exec(line.trimEnd());
+    if (m) out.set(Number(m[1]), m[2]);
+  }
+  return out;
+}
+
+// Pids among `found` (any parser's rows) that listen on one of `ports`.
+export function pidsOnPorts(found, ports) {
+  const want = new Set(ports);
+  return new Set(found.filter((r) => want.has(r.port)).map((r) => r.pid));
 }
 
 // `ps -ww -o pid=,pcpu=,rss=,etime=,command= -p ...` -> Map pid -> { cpu, rss, etime, command }
@@ -103,7 +175,9 @@ export function fmtMem(kb) {
   return `${mb.toFixed(1)} MB`;
 }
 
+// null: not known (Windows), shown blank.
 export function fmtCpu(p) {
+  if (p === null) return "";
   const n = Number(p ?? 0);
   return n < 10 ? `${n.toFixed(1)}%` : `${Math.round(n)}%`;
 }
@@ -218,3 +292,43 @@ export function killArgs(pid) {
   if (!Number.isInteger(pid) || pid <= 1) throw new Error(`refusing to signal pid ${pid}`);
   return ["-TERM", String(pid)];
 }
+
+// ---------- per platform ("macos" | "linux" | "windows"); argv only ----------
+
+// An exec rejection that means the program isn't installed.
+export const notInstalled = (e) => /program not found|ENOENT|no such file/i.test(String(e?.message ?? e ?? ""));
+
+// The stop command: SIGTERM, or taskkill (asks the program to close; no /F) on Windows.
+export function stopCall(pid, platform) {
+  const args = killArgs(pid);
+  return platform === "windows" ? ["taskkill", ["/PID", String(pid)]] : ["kill", args];
+}
+
+// Opens http://localhost:PORT in the default browser.
+export function openCall(port, platform) {
+  const url = `http://localhost:${port}`;
+  if (platform === "windows") return ["explorer.exe", [url]];
+  if (platform === "linux") return ["xdg-open", [url]];
+  return ["open", [url]];
+}
+
+// The listing calls the Ports page runs, in order of preference.
+export const lsofListCall = () => ["lsof", ["-iTCP", "-sTCP:LISTEN", "-nP"]];
+export const ssListCall = () => ["ss", ["-ltnp"]];
+
+// What the page says when nothing can list ports: ss (iproute2) is only offered on Linux.
+export const noToolText = (platform) => (platform === "linux" ? "Install lsof (or iproute2 for ss) to list ports" : "Install lsof to list ports");
+
+// Whether a `lsof -iTCP -sTCP:LISTEN` result is usable. lsof exits 1 when nothing listens; on Linux
+// some builds also exit 1 with a full listing (a warning about another mount), so there exit 1 is fine
+// when the output parses. macOS keeps the old rule: exit 1 only with empty output.
+export function lsofUsable(r, platform) {
+  if (!r) return false;
+  if (r.code === 0) return true;
+  if (r.code !== 1) return false;
+  const out = String(r.stdout ?? "").trim();
+  return !out || (platform === "linux" && parseLsof(out).length > 0);
+}
+export const netstatCall = () => ["netstat", ["-ano"]];
+export const tasklistCall = () => ["tasklist", ["/FO", "CSV", "/NH"]];
+export const pwdxCall = (pids) => ["pwdx", pids.map(String)];

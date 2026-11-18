@@ -129,32 +129,66 @@ export function avdDevices(names, running = []) {
     .map((n) => ({ platform: "android", id: `avd:${n}`, name: n.replace(/_/g, " "), detail: "AVD, not running", state: "avd", emulator: true }));
 }
 
+// Windows paths: "C:\\..." or "C:/..." and "\\\\server\\share"; joined with "\\".
+const WIN_ABS = /^([A-Za-z]:[\\/]|\\\\)/;
+const isAbs = (d, platform) => (platform === "windows" ? WIN_ABS.test(d) : d.startsWith("/"));
+const trimDir = (d, platform) => (platform === "windows" ? d.replace(/(?<=.)[\\/]+$/, "") : d.replace(/\/+$/, ""));
+const join = (platform, ...parts) => parts.join(platform === "windows" ? "\\" : "/");
+
 /** Android SDK folders to look in when adb is not on PATH: `envDirs` ($ANDROID_HOME,
- *  $ANDROID_SDK_ROOT) first, then the platform's default under home. No duplicates. */
+ *  $ANDROID_SDK_ROOT; on Windows also %LOCALAPPDATA%\\Android\\Sdk) first, then the platform's
+ *  default under home. No duplicates. */
 export function sdkDirs(homeDir, platform, envDirs = []) {
-  const out = (envDirs ?? []).filter((d) => typeof d === "string" && d.startsWith("/")).map((d) => d.replace(/\/+$/, ""));
+  const out = (envDirs ?? []).filter((d) => typeof d === "string" && isAbs(d, platform)).map((d) => trimDir(d, platform));
   if (typeof homeDir === "string" && homeDir) {
-    const h = homeDir.replace(/\/+$/, "");
+    const h = trimDir(homeDir, platform);
     if (platform === "macos") out.push(`${h}/Library/Android/sdk`);
     if (platform === "linux") out.push(`${h}/Android/Sdk`);
+    if (platform === "windows") out.push(join(platform, h, "AppData", "Local", "Android", "Sdk"));
   }
   return [...new Set(out.filter(Boolean))];
 }
 
-/** adb paths to probe (test -x) when adb isn't on PATH: each SDK's platform-tools, then the
- *  package managers' bin folders (a Dock-started app often has a minimal PATH). */
+/** adb paths to probe when adb isn't on PATH: each SDK's platform-tools, then the package
+ *  managers' bin folders (a Dock-started app often has a minimal PATH). */
 export function adbCandidates(sdks, platform) {
-  const out = (sdks ?? []).map((s) => `${s}/platform-tools/adb`);
+  const out = (sdks ?? []).map((s) => (platform === "windows" ? join(platform, s, "platform-tools", "adb.exe") : `${s}/platform-tools/adb`));
   if (platform === "macos") out.push("/opt/homebrew/bin/adb", "/usr/local/bin/adb");
   if (platform === "linux") out.push("/usr/local/bin/adb", "/usr/bin/adb");
   return [...new Set(out)];
 }
 
-export const envCall = (name) => ["printenv", [name]];
+/** The SDK's emulator binary. */
+export const emulatorPath = (sdk, platform) =>
+  (platform === "windows" ? join(platform, sdk, "emulator", "emulator.exe") : `${sdk}/emulator/emulator`);
 
-/** The SDK folder an adb path lives in ("<sdk>/platform-tools/adb"), or null. */
+/** The environment variables that may name an SDK folder. Windows adds LOCALAPPDATA, whose
+ *  Android\\Sdk is Android Studio's default there. */
+export const sdkEnvNames = (platform) =>
+  (platform === "windows" ? ["ANDROID_HOME", "ANDROID_SDK_ROOT", "LOCALAPPDATA"] : ["ANDROID_HOME", "ANDROID_SDK_ROOT"]);
+
+/** An environment value -> the SDK folder it points at ("" when unset). Never shown. */
+export const sdkFromEnv = (name, value, platform) =>
+  (!value ? "" : name === "LOCALAPPDATA" ? join(platform, trimDir(value, platform), "Android", "Sdk") : value);
+
+/** Reads one environment variable (a fixed name, never user text). Windows has no printenv: a
+ *  constant PowerShell expression prints it, or nothing when unset. */
+export function envCall(name, platform = "macos") {
+  if (!/^[A-Z_][A-Z0-9_]*$/.test(String(name))) throw new Error("bad variable name");
+  if (platform === "windows") return ["powershell", ["-NoProfile", "-NonInteractive", "-Command", `[Environment]::GetEnvironmentVariable('${name}')`]];
+  return ["printenv", [name]];
+}
+
+/** Windows: `where adb.exe` finds adb on PATH. */
+export const whereCall = (name) => ["where", [name]];
+/** `where` output -> the first .exe path, or null. */
+export function parseWhere(text) {
+  return String(text ?? "").split(/\r?\n/).map((l) => l.trim()).find((l) => WIN_ABS.test(l) && /\.exe$/i.test(l)) ?? null;
+}
+
+/** The SDK folder an adb path lives in ("<sdk>/platform-tools/adb", "<sdk>\\platform-tools\\adb.exe"), or null. */
 export function sdkOfAdb(adbPath) {
-  const m = /^(.*)\/platform-tools\/adb$/.exec(String(adbPath ?? ""));
+  const m = /^(.*)[\\/]platform-tools[\\/]adb(\.exe)?$/i.exec(String(adbPath ?? ""));
   return m ? m[1] : null;
 }
 
@@ -177,7 +211,10 @@ export const adbVersionCall = (adb) => [adb, ["version"]];
 export const adbDevicesCall = (adb) => [adb, ["devices", "-l"]];
 export const avdListCall = (emulator) => [emulator, ["-list-avds"]];
 export const avdNameCall = (adb, serial) => [adb, ["-s", serial, "emu", "avd", "name"]];
-export const probeCall = (path) => ["test", ["-x", path]];
+/** Whether a program exists at `path`: `test -x`, or on Windows (no `test`) running it with
+ *  `args` (`version` for adb, `-list-avds` for the emulator). */
+export const probeCall = (path, platform = "macos", args = ["version"]) =>
+  (platform === "windows" ? [path, args] : ["test", ["-x", path]]);
 export const sizeCall = (abs) => ["file", ["-b", abs]];
 
 /** iOS screenshots are full device size (~1200×2600, 12 MB decoded): the fallback scales each one
@@ -286,10 +323,55 @@ export function powerCall(device, adb) {
   return { reason: "Unknown device" };
 }
 
-/** Show a saved shot in the file manager. */
+/** Show a saved shot in the file manager. Windows: "/select," and the path (with backslashes) as two
+ *  argv elements (explorer.exe exits 1 even when it worked, so its code is not checked). */
 export function revealCall(abs, platform) {
   if (platform === "macos") return ["open", ["-R", abs]];
+  if (platform === "windows") return ["explorer.exe", ["/select,", abs.replace(/\//g, "\\")]];
   return ["xdg-open", [abs.replace(/\/[^/]*$/, "") || "/"]];
+}
+
+export const revealLabel = (platform) =>
+  (platform === "windows" ? "Show in Explorer" : platform === "linux" ? "Show in file manager" : "Reveal");
+
+/** Empty-state texts. Off macOS there is no iOS, so they speak of Android only. */
+export function emptyTexts(platform) {
+  if (platform === "macos") {
+    return {
+      noTools: { title: "No simulator tools found", body: "Install Xcode for iOS Simulators or Android platform-tools (adb) for Android." },
+      noDevices: { title: "No simulators or devices", body: "Create one in Xcode or Android Studio; it shows up here." },
+      waiting: "Waiting for simctl…",
+    };
+  }
+  return {
+    noTools: { title: "adb not found", body: "iOS simulators need macOS. Install Android platform-tools (adb) for Android emulators and devices." },
+    noDevices: { title: "No Android devices", body: "Start an emulator or connect a device with USB debugging on; it shows up here." },
+    waiting: "Waiting for adb…",
+  };
+}
+
+/** A PNG's { width, height } from its first 24 bytes (the IHDR chunk); null when it isn't one. */
+export function pngSizeFromBytes(bytes) {
+  const b = bytes;
+  if (!b || typeof b !== "object" || b.length < 24 || b[0] !== 0x89 || b[1] !== 0x50 || b[2] !== 0x4e || b[3] !== 0x47) return null;
+  if (String.fromCharCode(b[12], b[13], b[14], b[15]) !== "IHDR") return null;
+  const u32 = (i) => ((b[i] << 24) >>> 0) + (b[i + 1] << 16) + (b[i + 2] << 8) + b[i + 3];
+  const width = u32(16), height = u32(20);
+  return width > 0 && height > 0 ? { width, height } : null;
+}
+
+/** How a shot is sized when its bytes could not be read, off macOS: `file -b` on Linux, nothing on
+ *  Windows (no file(1) there). */
+export const sizeFallbackCall = (abs, platform) => (platform === "linux" ? sizeCall(abs) : null);
+
+/** A tool's first error line for the footer, at most 160 characters, with file paths cut out (sips, mv
+ *  and simctl name them). A path runs to a colon, a quote or the line end, spaces included, so no part
+ *  of a folder name such as "John Smith" is left behind. */
+export function firstLine(s) {
+  return String(s ?? "").trim().split("\n")[0]
+    .replace(/(?:\b[A-Za-z]:[\\/]|\\\\[^\\\s])[^:'"]*/g, "<path>")
+    .replace(/(?:~|\/)[^:'"]*\/[^:'"]*/g, "<path>")
+    .slice(0, 160);
 }
 
 /** `file -b` on a PNG -> { width, height }; null when it isn't a complete PNG header. */

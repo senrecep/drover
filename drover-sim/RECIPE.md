@@ -25,7 +25,7 @@ The buttons depend on the device. A shut-down iOS simulator gets Boot. A booted 
 
 ## Built from
 
-Two mods. `drover-sim` is the view, `"place": "none"`, version 0.2.0, licensed `MIT AND Apache-2.0`. It ships `main.js`, `lib/` (client, coords, devicehub, keymap, lifecycle, panel-ui, ring, sim, throttle), `ui/smartphone.svg`, `ui/refresh.svg`, a Swift helper as source in `helper/simd.swift` and `helper/simd.h`, `NOTICE` and `LICENSE-APACHE`. In the drover layout it is the block `drover-sim` in the `panel-body` stack, and `cmd-alt-s` selects it with `layout.select {stack: "panel-body", child: "drover-sim"}`.
+Two mods. `drover-sim` is the view, `"place": "none"`, version 0.2.0, licensed `MIT AND Apache-2.0`. It ships `main.js`, `lib/` (client, coords, devicehub, keymap, lifecycle, panel-ui, ring, sim, throttle), `ui/smartphone.svg`, `ui/refresh.svg`, a Swift helper as source in `helper/simd.swift` and `helper/simd.h`, `NOTICE` and `LICENSE-APACHE`. In the drover layout it is the block `drover-sim` in the `panel-body` stack, and `cmd-alt-s` (`ctrl-alt-shift-s` on Linux and Windows, and also `cmd-alt-shift-s` on macOS) selects it with `layout.select {stack: "panel-body", child: "drover-sim"}`.
 
 `drover-sim-screen` is an empty view mod (`"place": "none"`, version 0.1.0) with only `main.js` and `mod.json` in the repo. Herdr reloads a changed image only when the file lives in another mod's folder, so the helper writes its frames there. It needs no block and no key.
 
@@ -54,11 +54,12 @@ What it touches:
 
 ## Watch out
 
+- On Linux and Windows the panel shows Android only and says that iOS simulators need macOS. It finds `adb` on PATH, in `$ANDROID_HOME` or `$ANDROID_SDK_ROOT`, or in the default SDK folder (`<home>\AppData\Local\Android\Sdk` on Windows, found with `where adb.exe` first). The live view is macOS only, so frames come from screenshots at about one a second.
 - iOS needs macOS with Xcode. Without `xcrun simctl` the iOS section is replaced by a one-line note. The live view also needs `xcrun swiftc` and a selected developer folder (`$DEVELOPER_DIR` or `xcode-select -p`). If `xcode-select` points at the Command Line Tools, the helper cannot load the simulator frameworks and iOS uses screenshots until you press Refresh.
 - The helper is built from source the first time the panel needs it, and the panel says "Building helper…" while it does. Do not look for a binary in the repo. Do not write the build output into `mods/`.
 - Repair input restarts the simulator's backboardd and closes open apps. It is behind a two-click confirm for that reason.
-- Streaming pauses when the window is in the background or the panel is not on screen. The helper keeps running for 60 seconds after the last view hides, without capturing.
-- Android live frames need a running emulator with its gRPC port. A physical Android device only gets screenshots.
+- The helper keeps running for 60 seconds after the last view hides, without capturing.
+- Android live frames need a running emulator with its gRPC port.
 - `drover-sim-screen` must sit next to `drover-sim`. Without it the panel reports "The drover-sim-screen mod isn't installed" and no frame is drawn.
 - Do not commit the `.jpg` frames or `.w-` files from `drover-sim-screen`, or anything from `data/drover-sim/`.
 - The helper uses Apple's private CoreSimulator and SimulatorKit frameworks. A new Xcode can break it, and the panel then falls back to screenshots.

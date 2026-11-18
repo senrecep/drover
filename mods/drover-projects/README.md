@@ -42,7 +42,7 @@ are never listed, scanned or opened.
 | Git | `drover-git` as a dialog with `{cwd}`, plus `{on}` for another machine. For a folder on this computer it is off while a space on another machine is shown, because drover-git then follows that space |
 | Files | `drover-files` as a tab (or a dialog with no space) with `{folder}`; this computer only |
 | Pin / Unpin | Shared pins |
-| Reveal in Finder | This computer only (`open -R`, or `xdg-open` on Linux) |
+| Reveal in Finder | This computer only. `open -R` on macOS, `xdg-open` on Linux ("Show in file manager"), `explorer.exe` on Windows ("Show in Explorer"; off for a folder with a comma, which Explorer would split) |
 | Hide from list | Settings can show hidden projects again |
 
 Each action first checks that the folder still exists on that machine. Git and Files are
@@ -76,6 +76,16 @@ always shown:
 
 It also answers `drover-projects:open` (toggles the dialog). A layout switch restarts it;
 the data stays in `data/drover-projects/`.
+
+## Requirements
+
+On macOS and Linux everything works. Listing uses `find` and `printenv`, and `zoxide` when
+it is there. On Linux, showing a folder needs `xdg-open` (the xdg-utils package); without
+it the mod says so.
+
+On Windows, other machines work as usual, since `find` and `zoxide` run there. Folders on
+the Windows computer itself are not listed or sampled: the mod reads `/` paths and runs
+POSIX tools, so it shows a note there instead of an empty list.
 
 ## Files
 
