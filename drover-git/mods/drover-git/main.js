@@ -6,7 +6,7 @@ import { View, div, image } from "gpui-kit";
 import { h_flex, v_flex, InputState, Input } from "gpui-base";
 import { spaces, panes, agents, focused, theme, window, run, props, closeOverlay, hc, appHome, home, readTextFile } from "herdr";
 import {
-  blockers, blocking, agentsBusyIn, pickFolder, placeOf, matches, ago, clean, conflictPrompt, branchNameProblem,
+  blockers, blocking, agentsBusyIn, pickFolder, placeOf, matches, ago, clean, conflictPrompt, askArgs, branchNameProblem,
   switchArgs, fetchArgs, pullArgs, mergeArgs, pushArgs, newBranchArgs, abortMergeArgs, CONFIRM_MS, STALE_MS, trackedChanges,
 } from "./logic.js";
 import { gitRead, gitWrite, gitNet, gh, glab, helper, repoOf, readAll, forgeOf, mergePreview, compare, validBranch, openLocal } from "./git.js";
@@ -431,7 +431,7 @@ export default class Git extends View {
     cx.notify();
     cx.spawn(async (cx) => {
       try {
-        const r = await hc(["send", String(c.address), sent]);
+        const r = await hc(askArgs(c.address, sent));
         this.message = r.code === 0 ? { text: `Sent to ${c.agent}`, bad: false } : { text: "The agent could not be reached", bad: true };
       } catch {
         this.message = { text: "The agent could not be reached", bad: true };

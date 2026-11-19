@@ -27,12 +27,12 @@ The 28px status row holds Herdr's `workspace-status` across its width, plus two 
 
 Agent status uses the theme's status colors. In the sidebar a tab carries a dot in the color of its agent's status, working, blocked or done, and no dot while idle. A folded space shows a dot only when an agent inside is blocked or done. The pane header shows it too, and Overview spins working agents, puts blocked ones first and draws idle ones as a hollow ring.
 
-- Click a space or tab in the sidebar to show it. Right-click for its menu. The chevron folds a space or a machine. Up and Down move, Left and Right fold, Enter opens.
+- Click a space or tab in the sidebar to show it. Right-click for its menu. A tab's menu is drover's own (drover-terminal-menu), and its Close asks for a second click when an agent in the tab is working or needs you. The chevron folds a space or a machine. Up and Down move, Left and Right fold, Enter opens.
 - A tab split into panes lists each pane under it. Click one to focus it.
-- In the tab bar, a pinned button opens its panel page, and clicking it again closes the panel. Panels opens a popup with every page in groups, where the pin adds or removes a button. The new-tab menu lists Shell, the agents you have installed and your own templates. The Open in menu opens the space's folder in one of your installed editors. Clicking the diff chip toggles Changes.
+- In the tab bar, a pinned button opens its panel page, and clicking it again closes the panel. Panels opens a popup with every page in groups, where the pin adds or removes a button. The new-tab menu lists Shell, the agents you have installed and your own templates. The Open in menu opens the space's folder in one of your installed editors. Clicking the diff chip toggles Changes. Right-clicking a tab opens the same drover menu. The x on a tab with a working or waiting agent stays shown in the blocked color (the theme's `blocked`) and its tooltip names what will stop; a second click within 6 seconds closes it.
 - The run button starts the command you ran last, through `sh -c`, in a new tab in the focused folder. Its arrow lists the others and lets you add or edit one. The list is shared state, so every window sees it.
 - A pane header's sub-agent count opens a list of everything that agent started, each with its own status.
-- Right-clicking a terminal opens Herdr's menu with one extra item, Open selection, which hands the selected text to the Open with chooser.
+- Right-clicking a terminal opens Herdr's menu with one extra item, Open selection, which hands the selected text to the Open with chooser. Right-clicking a pane header opens drover's pane menu (drover-terminal-menu); its Close pane still acts on one click.
 
 Keys, all in `keys.json`. These are the macOS chords. Linux and Windows get a Ctrl chord next to each global one: `cmd-X` is `ctrl-shift-X` and `cmd-shift-X` is `ctrl-alt-shift-X`, so Go to is `ctrl-shift-k` there. The `cmd-alt` ones also become `ctrl-alt-shift` chords, since Ctrl+Alt is AltGr on Windows: Open with `ctrl-alt-shift-w`, Open in `ctrl-alt-shift-i`, History `ctrl-alt-shift-y`, Simulator `ctrl-alt-shift-s`. These extra chords are written with `secondary`, which is Cmd on macOS and Ctrl elsewhere, so macOS gets them as well, as Cmd+Alt+Shift chords, and `ctrl-shift-k` opens Go to on macOS too.
 
@@ -43,6 +43,7 @@ Keys, all in `keys.json`. These are the macOS chords. Linux and Windows get a Ct
 - `alt-shift-e` equalizes the focused tab's splits, `alt-shift-a` opens the arrangements popup, `alt-shift-s` saves the current split shape, `alt-shift-g` applies a grid.
 - `cmd-alt-e` opens the Open in menu.
 - In the inbox, agent tree, pane header and actions popups, `secondary-w` closes the popup.
+- `cmd-w` closes the tab. When an agent in it is working or needs you, Herdr shows a notice naming it, and a second press within 6 seconds closes the tab.
 
 ## Built from
 
@@ -77,7 +78,7 @@ root (row, titlebar none, traffic_lights [12,16], terminal_padding [14,12], canv
       drover-projects-bg drover-projects {role: "background"}, 0px
 ```
 
-Shipped Herdr mods it uses: `workspace-chrome`, `workspace-status`, `files`, `changes`. `drover-tabs` and `drover-terminal-menu` began as copies of the shipped `tabs` and `menu` mods. `drover-goto`, `drover-composer`, `drover-dispatch` and `drover-open` have no block; their keys open them as overlays.
+Shipped Herdr mods it uses: `workspace-chrome`, `workspace-status`, `files`, `changes`. `drover-tabs` and `drover-terminal-menu` began as copies of the shipped `tabs` and `menu` mods. `drover-goto`, `drover-composer`, `drover-dispatch` and `drover-open` have no block; their keys open them as overlays. The tab and pane header right-click menus use `drover-terminal-menu`; the space menus still use Herdr's `menu`.
 
 What the layout's mods touch, in one place. The single items have their own RECIPE with the details.
 
@@ -107,3 +108,4 @@ What the layout's mods touch, in one place. The single items have their own RECI
 - The run button starts a saved command in a new tab.
 - `alt-shift-e` evens out the splits of a tab with three panes.
 - Right-clicking a terminal with text selected shows Open selection, and it opens the chooser with that text.
+- Clicking a tab's x while an agent in it is working leaves the tab open and names the agent; a second click closes it.

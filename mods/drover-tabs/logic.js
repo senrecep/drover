@@ -148,3 +148,17 @@ export function popupMaxHeight(windowHeight, top = 0, margin = 12, cap = 780, fl
   if (!Number.isFinite(h) || h <= 0) return cap;
   return Math.max(floor, Math.min(cap, Math.floor(h - (Number(top) || 0) - margin)));
 }
+
+// The close key has no held flag, so a repeat stream is told apart by time. The second press must come
+// at least KEY_ARM_GAP_MS after the arm (longer than the key repeat delay: macOS ~500 ms, Linux ~600 ms)
+// and at least KEY_REPEAT_GAP_MS after the previous close command (repeats come every ~30 ms).
+export const KEY_ARM_GAP_MS = 700;
+export const KEY_REPEAT_GAP_MS = 100;
+
+// armedAt: when the key arm was set, or null. lastAt: when the previous close command came, or null.
+// -> true when this command is a repeat or too early to count as a second press.
+export function keyIgnored(armedAt, lastAt, now) {
+  if (armedAt == null) return false;
+  if (now - armedAt < KEY_ARM_GAP_MS) return true;
+  return lastAt != null && now - lastAt < KEY_REPEAT_GAP_MS;
+}

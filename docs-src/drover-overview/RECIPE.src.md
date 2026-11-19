@@ -16,7 +16,7 @@ Agents: groups in this order, each with its count: Needs you, Done, Working, Idl
 
 - A click on a row focuses that agent's pane.
 - Hovering a row, or focusing its agent, swaps the branch for buttons: Reply, Settle on a done agent, and Snooze, or Wake on a snoozed one.
-- Reply opens a field in the row. Enter sends the text with `hc send --force`, so it reaches an agent that waits on a prompt. Esc cancels.
+- Reply opens a field in the row. It notes the agent's state when it opens and checks it again when you press Enter. If the agent changed, nothing is sent and your text stays; Look again takes a fresh look. A permission prompt, a sign-in prompt or a list of choices is answered in the agent's terminal, not here. Esc cancels.
 - Settle moves a done agent to Idle until it finishes another turn.
 - Snooze offers 15 min, 1 hour and Tomorrow (9:00 local). A blocked agent always shows under Needs you, snoozed or not.
 - Metrics refresh every 5 seconds and ports every 15, only while the view is on screen. With the window in the background it slows to every 30 seconds.
@@ -34,15 +34,15 @@ What it touches:
   - macOS: `sysctl -n hw.memsize hw.ncpu`, `ps -A -o %cpu=`, `vm_stat`, and `lsof +c 0 -nP -iTCP -sTCP:LISTEN` for ports;
   - Linux: `cat /proc/stat /proc/meminfo /proc/loadavg`, `nvidia-smi` for the GPU, and `ss -ltnp` for ports, or lsof when ss is missing;
   - Windows, this computer only: `netstat -ano` and `tasklist /FO CSV /NH` for listening ports. There is no CPU, memory or GPU reading, and the card says so.
-- `hc`: `label <agent> snoozed=<time>` and `settled=<time>:<turn>`, and `send --force -- <agent> <text>` for a reply.
-- Reads outside its folder: nothing beyond what those programs report.
+- `hc`: `label <agent> snoozed=<time>` and `settled=<time>:<turn>`; `get --json -- <agent>` and, for an agent that waits on you, `read --json --lines 0 -- <agent>` to check a reply; `send --json -- <agent> <text>`, with `--if idle` or `--if working` for those states and `--force` only for a waiting agent that passed the check.
+- Reads outside its folder: nothing beyond what those programs report. To check a reply it reads the bottom of the screen of an agent that waits on you, keeps only a fingerprint of it, and drops the text.
 - Writes: the two labels above on the agent's terminal. Nothing on disk.
 
 ## Watch out
 
 - A missing tool leaves that meter out. A machine without `nvidia-smi` or `ss` stops being asked after the first miss.
 - Snooze and settle are terminal labels, so drover-inbox and other mods that read them agree with this view.
-- Reply uses `--force`. Read what the agent asks before you send.
+- Reply to a waiting agent uses `--force` after drover checks that the question is the one you saw. hc can hold a send for a few seconds, or longer while you have unsent text in that terminal, so in rare cases the reply lands after the agent moved on. Drover warns you when that happens.
 
 ## Done when
 

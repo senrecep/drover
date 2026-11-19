@@ -260,8 +260,9 @@ export default class Pane extends View {
       .on_hover((on, cx) => this.headHover(on, cx))
       .on_mouse_move((e) => { pointerMoved(e.position); this.box = e.bounds; })
       .on_click(() => run("pane.focus", { pane }))
-      // The terminal's own right-click menu (the layout's terminal_menu, at its 220×260), whose Copy address gives the address.
-      .on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); openOverlay({ mod: "menu", kind: "popup", width: 220, height: 260, props: { tab: "pane", target: { pane, terminal: p.terminal } } }); })
+      // The terminal's own right-click menu (drover-terminal-menu, the layout's terminal_menu, at 220×260), so the header
+      // and the terminal show the same items.
+      .on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); openOverlay({ mod: "drover-terminal-menu", kind: "popup", width: 220, height: 260, props: { tab: "pane", target: { pane, terminal: p.terminal } } }); })
       .child(div().size(16).mr(-4).flex_none().flex().items_center().justify_center().when(Boolean(pic), (el) => el.child(pic)))
       .when(Boolean(name), (el) => el.child(div().min_w(0).truncate().font_medium().text_color(p.focused ? t.foreground : t.muted).child(name)))
       .child(div().relative().flex_1().min_w(0).h_full().ml(6).flex().items_center()

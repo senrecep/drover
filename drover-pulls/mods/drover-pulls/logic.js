@@ -263,8 +263,9 @@ export function autoMergeArgs(repo, number, method) {
   return ["pr", "merge", String(number), "--repo", repo, "--auto", `--${method}`];
 }
 
+// "--" ends hc's options, so text that starts with "-" is still sent as text.
 export function sendArgs(address, text) {
-  return ["send", String(address), text];
+  return ["send", "--", String(address), text];
 }
 
 export function listArgs(repo) {

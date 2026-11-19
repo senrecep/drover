@@ -318,6 +318,17 @@ export function visibleIn(node, mod) {
 // exec rejects with "cannot start <program>: program not found" when a program is not installed.
 export const missingProgram = (e) => /program not found/.test(String(e?.message ?? e));
 
+// `hc send` for a draft prompt: "--" ends the options, so a prompt that starts with "-" stays text.
+export const sendArgv = (address, text) => ["send", "--", String(address), text];
+
+// hc can hold a send while the person has unsent text in that terminal (up to a minute), so the
+// send gets more time than that.
+export const SEND_TIMEOUT_MS = 90_000;
+
+// What the panel says when `exec("hc", ...)` rejects. Apart from a missing hc, the send may have
+// started (a timeout or a lost machine), so the prompt can still arrive.
+export const sendFailText = (e) => (missingProgram(e) ? missingText("hc") : "No answer from hc. The prompt may still arrive, so check the agent before sending again.");
+
 // What the panel says when a program it needs is not installed, by window platform.
 export function missingText(program, platform) {
   if (program === "git") return "Needs git. Install Git and put it on PATH.";

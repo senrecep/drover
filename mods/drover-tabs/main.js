@@ -3,6 +3,7 @@
 // Two kinds of copy (props decide):
 // - the bar (a layout block): tabs, the pinned panel buttons, and "Panels", which opens the popup.
 //   Clicking an open panel's button closes the panel. Answers the key command drover-tabs.panels.
+//   A tab's x and the drover-tabs.close key ask twice when an agent in the tab is busy (close-guard.js).
 // - the popup (an overlay: openOverlay from the bar, or mod.open drover-tabs): every child of the
 //   `panel-body` stack in groups; a row opens or closes its panel, the pin adds or removes its
 //   toolbar button. Pins are the shared key drover-tabs.pinned.
@@ -13,10 +14,11 @@
 // "space ⎇ branch" title that hides first when the tabs need the room.
 import { View, div, svg, image } from "gpui-kit";
 import { h_flex, v_flex, ScrollHandle, InputState, Input, Scrollbar } from "gpui-base";
-import { spaces, panes, run, openOverlay, closeOverlay, theme, window, shared, setShared, layout, settings, props, nextCommand, exec, knownAgents, keys, focused, home } from "herdr";
+import { spaces, panes, run, openOverlay, closeOverlay, theme, window, shared, setShared, layout, settings, props, nextCommand, exec, knownAgents, keys, focused, home, agents, terminals, notify } from "herdr";
+import { CONFIRM_MS, activeTabId, closePlan, press, liveArm } from "./close-guard.js";
 import {
   PINS_KEY, findNode, describe, panelIds, groupPanels, openPanel, toggleCommands, normalizePins,
-  togglePin, popupHeight, popupMaxHeight,
+  togglePin, popupHeight, popupMaxHeight, keyIgnored,
 } from "./logic.js";
 import { TYPE, iconButton, button as textButton, metaColor, sectionLabel, emptyState, diffStat, mono } from "./lib/panel-ui.js";
 import {
@@ -70,6 +72,12 @@ function openInTarget() {
 // fs.stat can't see outside home (e.g. /Applications), so ask `test -d` instead (argv, local).
 const isDir = async (p) => { try { return (await exec("test", ["-d", p], { timeout: 3000 }))?.code === 0; } catch { return false; } };
 
+// Herdr's lists for the close guard; a list that throws is null, which the guard counts as busy.
+function closeData() {
+  const read = (f) => { try { return f(); } catch { return null; } };
+  return { spaces: read(spaces), panes: read(panes), agents: read(agents), terminals: read(terminals) };
+}
+
 // The active space, its shown tab, and where its diff is read.
 function diffTarget() {
   const space = spaces().find(p => p.active) ?? null;
@@ -104,9 +112,39 @@ export default class Tabs extends View {
         if (c === "panels") { if (this.panelsBtn) this.openPopup(); else run("mod.open", { name: MOD }); }
         // drover-tabs.open-in (a key): the "Open in" popup, as the ▾ does.
         else if (c === "open-in") this.openEditors();
+        // drover-tabs.close (a key): the shown tab, asking for a second press when an agent in it is busy.
+        else if (c === "close") this.closeByKey();
         cx.notify();
       }
     });
+  }
+
+  // The tab's x: closes at once, or arms when an agent in the tab is working or needs the user;
+  // a second click within CONFIRM_MS (not the same double click) closes it.
+  closeByClick(id, cx) {
+    const now = Date.now();
+    const r = press(liveArm(this.clickArm, now), closePlan(id, closeData(), "Click"), now);
+    this.clickArm = r.armed;
+    if (r.action === "fire") run(...r.command);
+    else if (r.action === "arm") {
+      const armed = r.armed;
+      cx.timer.after(CONFIRM_MS + 50, (cx) => { if (this.clickArm === armed) { this.clickArm = null; cx.notify(); } });
+    }
+    cx.notify();
+  }
+
+  // The close key: the same rules, said in a toast.
+  closeByKey() {
+    const now = Date.now();
+    // The key has no held flag: a repeat stream, or a press too soon after arming, is not a second press.
+    const last = this.keyLastAt ?? null;
+    this.keyLastAt = now;
+    if (keyIgnored(liveArm(this.keyArm, now)?.at ?? null, last, now)) return;
+    const data = closeData();
+    const r = press(liveArm(this.keyArm, now), closePlan(activeTabId(data.spaces), data, "Press"), now);
+    this.keyArm = r.armed;
+    if (r.action === "fire") run(...r.command);
+    else if (r.action === "arm") notify({ title: "Press again to close this tab", body: r.armed.text, level: "warning", timeout: CONFIRM_MS });
   }
 
   // The popup, sized to the panels this layout has: right-aligned under the Panels button when its
@@ -409,7 +447,10 @@ export default class Tabs extends View {
     const item = (c, i) => {
       const program = panes().find(p => p.tab === c.id && p.program?.agent)?.program ?? panes().find(p => p.tab === c.id)?.program;
       const name = /^tb\d+$/.test(c.name) ? program?.name ?? "Terminal" : c.name;
-      const showClose = c.active || this.hoverTab === c.id;
+      // An armed x (a busy tab's first click) stays shown, colored, and says what will end.
+      const armed = liveArm(this.clickArm, Date.now())?.tab === c.id ? this.clickArm : null;
+      const showClose = c.active || this.hoverTab === c.id || Boolean(armed);
+      const closeTip = armed ? armed.text : "Close tab";
       return h_flex().id(`tab-${c.id}`).h(29).pl(10).pr(6).gap(7).rounded_t(6).items_center().flex_none().text_size(TYPE.sm)
         // A rename or status dot on this or an earlier tab can push the active one out.
         .when(i <= active, el => el.on_size_change((_size, cx) => { this.scroll.scroll_to_item(active); cx.notify(); }))
@@ -425,16 +466,19 @@ export default class Tabs extends View {
           if (from !== null && from !== i) run("tab.move", { id: shown[from].id, index: space.tabs.findIndex(x => x.id === c.id) + 1 });
           else run("tab.select", { id: c.id });
         })
-        .on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); openOverlay({ mod: "menu", kind: "popup", width: 200, props: { tab: "tab", target: { id: c.id, space: space.id } } }); })
+        // drover's menu, whose Close asks twice for a busy tab.
+        .on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); openOverlay({ mod: "drover-terminal-menu", kind: "popup", width: 200, props: { tab: "tab", target: { id: c.id, space: space.id } } }); })
         .when(Boolean(program?.icon), el => el.child(program.tint ? svg(program.icon).size(14).text_color(t.muted) : image(program.icon).size(14)))
         .child(div().max_w(170).truncate().child(c.zoomed ? `${name} Z` : name))
         .when(c.status === "working", el => el.child(svg("mods/workspace-chrome/spinner.svg").size(12).flex_none().text_color(t.working).spin(900)))
         .when(c.status === "blocked" || c.status === "done", el => el.child(div().size(6).rounded(3).bg(t[c.status])))
         // The × keeps its 16 px slot either way, so hovering never shifts the tabs.
         .child(div().id(`close-${c.id}`).size(16).flex_none().flex().items_center().justify_center().rounded(4)
-          .when(showClose, el => el.text_color(t.muted).hover(s => s.bg(t.hover).text_color(t.foreground))
-            .tooltip("Close tab").accessibility_label("Close tab").on_mouse_down("left", stop)
-            .on_click((_e, cx) => { cx.stop_propagation(); run("tab.close", { id: c.id }); })
+          .when(showClose && !armed, el => el.text_color(t.muted).hover(s => s.bg(t.hover).text_color(t.foreground)))
+          .when(Boolean(armed), el => el.text_color(t.blocked).bg(t.blocked + "26"))
+          .when(showClose, el => el
+            .tooltip(closeTip).accessibility_label(closeTip).on_mouse_down("left", stop)
+            .on_click((_e, cx) => { cx.stop_propagation(); this.closeByClick(c.id, cx); })
             .child(svg("mods/pane/close.svg").size(12))));
     };
     const root = layout(), sidebar = findNode(root, "sidebar"), w = window();

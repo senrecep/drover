@@ -555,6 +555,11 @@ export function conflictPrompt(branch, files, op = "merge") {
   return clean(`The ${op} into ${branch || "the current branch"} stopped with conflicts in:\n${list}${more}\nResolve them, keeping both sides' intent, then stage the files. Do not commit, abort or force anything.`, MAX_TEXT);
 }
 
+/** `hc send` for Ask agent: "--" ends the options, so a prompt that starts with "-" stays text. */
+export function askArgs(address, text) {
+  return ["send", "--", String(address), text];
+}
+
 /** Filter for branch lists: every space-separated word must appear (case-insensitive). */
 export function matches(name, query) {
   const q = String(query ?? "").trim().toLowerCase();

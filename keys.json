@@ -78,7 +78,9 @@
         "stack": "panel-body",
         "child": "drover-sim"
       }
-    }
+    },
+    "cmd-w": "drover-tabs.close",
+    "ctrl-shift-w": "drover-tabs.close"
   },
   "mod:drover-inbox": {
     "secondary-w": "overlay.close",

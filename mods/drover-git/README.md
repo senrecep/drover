@@ -44,7 +44,8 @@ refreshed first.
 Conflicts. When a merge stops, the dialog lists the conflicted files. Each one opens in
 drover-viewer when it is installed, else with the system app. Ask agent shows the exact prompt
 first; only a second click sends it to the focused agent (or the one agent working in this
-repository). Copy prompt puts it on the clipboard instead.
+repository). It goes out as `hc send -- <agent> <prompt>`, so the prompt is always passed as
+text, even when it starts with a dash. Copy prompt puts it on the clipboard instead.
 
 ## Settings
 

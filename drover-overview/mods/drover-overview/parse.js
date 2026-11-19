@@ -252,13 +252,165 @@ export function snoozePresets(now) {
 // `hc label <address> key=value`; an empty value removes the label.
 export const labelArgs = (address, key, value) => ["label", address, `${key}=${value}`];
 
-// `hc send`: pastes the text and presses Enter. --force types even when the agent is blocked on
-// a dialog, which is what a reply to a blocked agent is; "--" keeps text starting with "-" a text.
-// Null for blank text: nothing is sent.
-export function sendArgs(address, text) {
-  const body = (text ?? "").replace(/\s+$/, "");
-  if (!address || !body.trim()) return null;
-  return ["send", "--force", "--", address, body];
+// ---- Reply: a snapshot of the agent when the box opens, checked again before the send ----
+
+// Lines at the bottom of the screen that count for a waiting agent's question.
+export const REGION_LINES = 24;
+
+// The reply text without trailing whitespace, or null when blank.
+export function sendBody(text) {
+  const body = String(text ?? "").replace(/\s+$/, "");
+  return body.trim() ? body : null;
+}
+
+// `hc send`: pastes the text and presses Enter. "--" keeps text starting with "-" a text.
+// A waiting (blocked) agent needs --force; idle and working use --if, which hc checks again
+// right before it types. Done has no --if word. Null for any other state, blank text or no address.
+export function replyArgs(address, body, state) {
+  if (!address || !sendBody(body)) return null;
+  const opts = { blocked: ["--force"], idle: ["--if", "idle"], working: ["--if", "working"], done: [] }[state];
+  if (!opts) return null;
+  return ["send", ...opts, "--json", "--", address, body];
+}
+
+export const getArgs = (address) => ["get", "--json", "--", address];
+export const readArgs = (address) => ["read", "--json", "--lines", "0", "--", address];
+
+// 64-bit FNV-1a over UTF-16 code units, as 16 hex digits. Spots drift, not forgery.
+export function hash(text) {
+  const s = String(text ?? "");
+  let h = 0xcbf29ce484222325n;
+  for (let i = 0; i < s.length; i++) {
+    h ^= BigInt(s.charCodeAt(i));
+    h = (h * 0x100000001b3n) & 0xffffffffffffffffn;
+  }
+  return h.toString(16).padStart(16, "0");
+}
+
+// The parsed `hc get --json` of a terminal -> only what a reply is checked against, or null when
+// it is not live or lacks a status, app or foreground pid. Nothing else (argv, cwd, labels) is kept.
+export function snapOf(term, regionHash) {
+  if (!term || term.state !== "live") return null;
+  const st = term.status;
+  const pid = term.foreground?.pid;
+  if (!st || typeof st.state !== "string" || typeof st.app !== "string" || !st.app || !Number.isInteger(pid)) return null;
+  return {
+    pid,
+    app: st.app,
+    state: st.state,
+    kind: st.kind ?? null,
+    statusMs: term.status_ms ?? null,
+    turn: term.turn ?? 0,
+    msgHash: hash(st.msg ?? ""),
+    regionHash: regionHash ?? null,
+  };
+}
+
+// Same process, app, state and turn. A waiting agent must also show the same question: same
+// status time, kind, message and screen region. For idle, working and done, hc's own check is the fence.
+export function sameSnap(a, b) {
+  if (!a || !b) return false;
+  if (a.pid !== b.pid || a.app !== b.app || a.state !== b.state || a.turn !== b.turn) return false;
+  if (a.state !== "blocked") return true;
+  return a.statusMs === b.statusMs && a.kind === b.kind && a.msgHash === b.msgHash && a.regionHash === b.regionHash;
+}
+
+// The last REGION_LINES non-empty-tailed lines of a screen, CRLF or LF, trailing spaces gone.
+function regionLines(screen) {
+  const lines = String(screen ?? "").split(/\r?\n/).map((l) => l.replace(/\r/g, "").replace(/\s+$/, ""));
+  while (lines.length && lines[lines.length - 1] === "") lines.pop();
+  return lines.slice(-REGION_LINES);
+}
+
+// Lines that are only spinner or box-drawing noise.
+const NOISE = /^[\s─-╿⠀-⣿·•●○◐-◓◴-◷✢✳✶✻✽*]+$/;
+const CURSOR = /^\s*[❯›>▶](?:\s|$)/;
+
+// The bottom of a screen with what moves on its own taken out: spinners, timers, token counts,
+// a caret. Used only for a fingerprint, never shown.
+export function normalizeRegion(screen) {
+  return regionLines(screen)
+    .filter((l) => !(l.trim() && NOISE.test(l)))
+    .map((l) => l
+      .replace(/\d+(?:[.,]\d+)?\s?(?:ms|s|m|h)\b/g, "#")
+      .replace(/\d[\d.,]*\s?[kKmM]?\s*(tokens?)\b/gi, "# $1")
+      .replace(/\b(tokens?):?\s*\d[\d.,]*\s?[kKmM]?/gi, "$1 #")
+      .replace(CURSOR, "")
+      .replace(/ {2,}/g, " ")
+      .trim())
+    .join("\n");
+}
+
+// A numbered choice: an optional marker symbol, then "1." or "1)".
+const ITEM = /^\s*([^\p{L}\p{N}\s]\s*)?(\d{1,2})([.)])(?:\s|$)/u;
+
+// Whether the bottom of the screen shows a list of choices, where Enter would pick an option.
+// Errs toward yes: a false yes only means the reply is refused.
+export function menuShown(screen) {
+  const lines = regionLines(screen);
+  const items = lines.map((l) => l.match(ITEM)).filter(Boolean);
+  // (a) "1." then the next numbered line "2." (or with ")").
+  for (let i = 0; i + 1 < items.length; i++) {
+    if (items[i][2] === "1" && items[i + 1][2] === "2" && items[i][3] === items[i + 1][3]) return true;
+  }
+  // (c) a numbered line marked with a symbol: the current choice.
+  if (items.some((m) => m[1])) return true;
+  // (b) a key hint: Esc, or a key with select, choose or confirm.
+  return lines.some((l) => /\besc(?:ape)?\b/i.test(l)
+    || (/\b(?:enter|return|tab|space|arrows?)\b|[←-↓]/i.test(l) && /\b(?:select|choose|confirm)\b/i.test(l)));
+}
+
+// Why a reply is refused for this snapshot, or null when it may go:
+// "permission", "auth", "menu" (waiting agents only), or "refused" for a state that takes no replies.
+export function refusalOf(snap, menu) {
+  const state = snap?.state;
+  if (state === "blocked") {
+    if (snap.kind === "permission") return "permission";
+    if (snap.kind === "auth") return "auth";
+    return menu ? "menu" : null;
+  }
+  return state === "idle" || state === "working" || state === "done" ? null : "refused";
+}
+
+// The text of `hc read --json` output, or null when it is unreadable or incomplete.
+export function readText(stdout) {
+  let r;
+  try { r = JSON.parse(stdout ?? ""); } catch { return null; }
+  if (!r || typeof r.text !== "string" || r.complete === false || r.why === "error") return null;
+  return r.text;
+}
+
+// What the screen region gives a snapshot: whether a menu shows, and its fingerprint.
+export const regionOf = (text) => ({ menu: menuShown(text), hash: hash(normalizeRegion(text)) });
+
+// Parsed JSON, or null.
+export function parseJson(s) {
+  try { return JSON.parse(s ?? ""); } catch { return null; }
+}
+
+// hc's stderr on a failed send -> fixed text and the next state. The raw error is never shown:
+// a usage error can echo the reply text.
+export function sendErrorText(stderr) {
+  const kind = parseJson(stderr)?.error?.kind;
+  if (kind === "status_mismatch" || kind === "blocked") return { text: "This agent changed before the reply went in. Nothing was sent.", state: "changed" };
+  if (kind === "not_found" || kind === "finished") return { text: "That agent is gone.", state: "gone" };
+  return { text: "Couldn't send the reply.", state: "failed" };
+}
+
+// The live row says the agent moved on since the snapshot (done and idle count as one).
+// Advisory only: the check before the send decides.
+export function drifted(snap, liveStatus, liveTurn) {
+  if (!snap) return false;
+  const word = (s) => (s === "done" ? "idle" : s);
+  return word(liveStatus) !== word(snap.state) || (liveTurn ?? 0) !== snap.turn;
+}
+
+// A send that went in while a waiting agent had already moved on: hc's SendResult says so.
+export function landedLate(snap, stdout) {
+  if (snap?.state !== "blocked") return false;
+  const r = parseJson(stdout);
+  if (!r || typeof r !== "object") return false;
+  return r.status !== "blocked" || r.turn !== snap.turn;
 }
 
 // The `layout.select` args that bring `child` of stack `stack` forward, or null when the

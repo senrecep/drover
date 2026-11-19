@@ -263,7 +263,8 @@ export default class DroverSpaces extends View {
     const panesLabel = plural(row.paneCount, "pane");
     return this.frame(row, t, { selected })
       .on_click((_e, cx) => this.activate(row, cx))
-      .on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); openOverlay({ mod: "menu", kind: "popup", width: 200, props: { tab: "tab", target: { id: tab.id, space: s.id } } }); })
+      // drover's menu, whose Close asks twice when an agent in the tab is busy.
+      .on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); openOverlay({ mod: "drover-terminal-menu", kind: "popup", width: 200, props: { tab: "tab", target: { id: tab.id, space: s.id } } }); })
       // Split tabs lead with their fold chevron, others with a spacer of its width so the icons line up;
       // every tab then shows its terminal folder's project type.
       .when(row.split, (el) => el.child(this.chevron(row, !row.folded, t, row.folded ? `Show ${tab.name}'s panes` : `Hide ${tab.name}'s panes`)))

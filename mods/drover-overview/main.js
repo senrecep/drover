@@ -5,7 +5,11 @@ import { h_flex, v_flex, InputState, Input } from "gpui-base";
 import { agents, spaces, panes, machines, terminals, theme, run, hc, notify, window, layout } from "herdr";
 import { Host } from "./collect.js";
 import { TYPE, mono, metaColor, panelHeader, sectionLabel, emptyState, button } from "./lib/panel-ui.js";
-import { ago, visibleIn, groupRows, nextWake, snoozeAt, snoozePresets, settleValue, labelArgs, sendArgs } from "./parse.js";
+import {
+  ago, visibleIn, groupRows, nextWake, snoozeAt, snoozePresets, settleValue, labelArgs,
+  sendBody, replyArgs, getArgs, readArgs, snapOf, sameSnap, refusalOf, readText, regionOf, parseJson,
+  sendErrorText, drifted, landedLate,
+} from "./parse.js";
 
 const MOD = "drover-overview";
 const TICK_MS = 5000; // metrics
@@ -17,6 +21,22 @@ const machineLabel = (name) => name ?? "Local";
 const key = (name) => name ?? "";
 
 const LABELS = { needs: "Needs you", done: "Done", working: "Working", idle: "Idle", snoozed: "Snoozed" };
+
+// Reply: why the box won't send, by check state. "ready" and "loading" show a hint instead.
+const RECHECK_MS = 300; // a waiting agent's screen that differs is read once more after this
+const NOTES = {
+  failed: "Couldn't read this agent, so Reply is off.",
+  refused: "This agent isn't taking replies right now.",
+  permission: "It's asking for permission. Answer it in its terminal.",
+  auth: "It's asking you to sign in. Do that in its terminal.",
+  menu: "It's showing a list of choices. Answer it in its terminal.",
+  changed: "This agent changed since you opened Reply. Nothing was sent.",
+  moved: "This agent changed before the reply went in. Nothing was sent.",
+  unreadable: "Couldn't check this agent, so nothing was sent.",
+  unknown: "Couldn't send the reply. It may still arrive, so check the agent before sending again.",
+};
+// Addresses with a reply going out, shared by every copy of this panel: one at a time per agent.
+const sendingTo = new Set();
 const clock = (ms) => new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
 const clean = (s) => (s ?? "").replace(/^[^\p{L}\p{N}~/]+/u, "").trim();
@@ -57,7 +77,10 @@ export default class Overview extends View {
     this.folded = new Set(readJson("folded", []));
     this.snoozedOpen = readJson("snoozed-open", false);
     this.pending = { settled: {}, snoozed: {} }; // label values shown before the core reports them
-    this.ui = null; // { address, kind: "reply" | "snooze", input? }: the one row with an open action
+    // The one row with an open action: { address, kind: "reply" | "snooze" }. A reply also has
+    // input, check (see NOTES, plus "loading" and "ready"), snap, token, sending and busy.
+    this.ui = null;
+    this.seq = 0; // reply check tokens: a result for an older token is dropped
     this.hot = null; // address under the pointer
     this.wake = 0; // the next snooze to end
     this.keys = cx.focus_handle();
@@ -163,21 +186,128 @@ export default class Overview extends View {
   openReply(address, cx) {
     const input = InputState.new({ placeholder: "Reply, Enter sends" });
     input.on("submit", (_e, cx) => this.sendReply(cx));
-    this.ui = { address, kind: "reply", input };
+    const ui = { address, kind: "reply", input, check: "loading", snap: null, token: 0, sending: false, busy: false };
+    this.ui = ui;
     input.focus();
     cx.timer.after(60, () => { if (this.ui?.input === input) input.focus(); });
-    cx.notify();
+    this.look(ui, cx);
   }
 
-  // Only from the person's Enter in the field.
-  sendReply(cx) {
-    const args = this.ui?.kind === "reply" ? sendArgs(this.ui.address, this.ui.input.value()) : null;
-    if (!args) return;
-    this.ui = null;
+  // Notes what the agent is doing now; the send is checked against this. Fails closed.
+  look(ui, cx) {
+    const token = (ui.token = ++this.seq);
+    ui.check = "loading";
+    ui.snap = null;
+    ui.busy = false;
     cx.notify();
-    cx.spawn(async () => {
-      const r = await hc(args).catch((e) => ({ code: 1, stderr: String(e) }));
-      if (r.code !== 0) notify({ title: "Couldn't send the reply", body: (r.stderr ?? "").trim(), level: "error" });
+    cx.spawn(async (cx) => {
+      const r = await this.snapshot(ui.address).catch(() => ({ check: "failed" }));
+      if (this.ui !== ui || ui.token !== token) return;
+      ui.check = r.check;
+      ui.snap = r.snap ?? null;
+      cx.notify();
+    });
+  }
+
+  // { check: "ready", snap } or { check: <why not> }. The screen is read only for a waiting
+  // agent: checked for a list of choices, hashed, and dropped.
+  async snapshot(address) {
+    const snap = await this.agentSnap(address);
+    if (!snap) return { check: "failed" };
+    const why = refusalOf(snap, false);
+    if (why) return { check: why };
+    if (snap.state !== "blocked") return { check: "ready", snap };
+    const region = await this.screenRegion(address);
+    if (!region) return { check: "failed" };
+    if (region.menu) return { check: "menu" };
+    return { check: "ready", snap: { ...snap, regionHash: region.hash } };
+  }
+
+  // `hc get`, reduced at once to the snapshot fields; null when it can't be read.
+  async agentSnap(address) {
+    const r = await hc(getArgs(address)).catch(() => null);
+    return r?.code === 0 ? snapOf(parseJson(r.stdout), null) : null;
+  }
+
+  // `hc read` of the screen -> { menu, hash }; the text itself is not kept. Null when unreadable.
+  async screenRegion(address) {
+    const r = await hc(readArgs(address)).catch(() => null);
+    const text = r?.code === 0 ? readText(r.stdout) : null;
+    return text == null ? null : regionOf(text);
+  }
+
+  // "same", "changed", "unreadable" or "menu". A waiting agent's screen that differs is read once
+  // more after RECHECK_MS, in case it was caught mid-redraw.
+  async recheck(snap, address, cx) {
+    const now = await this.agentSnap(address);
+    if (!now) return "unreadable";
+    if (snap.state !== "blocked") return sameSnap(snap, now) ? "same" : "changed";
+    if (!sameSnap(snap, { ...now, regionHash: snap.regionHash })) return "changed";
+    for (let i = 0; i < 2; i++) {
+      if (i) await cx.sleep(RECHECK_MS);
+      const region = await this.screenRegion(address);
+      if (!region) return "unreadable";
+      if (region.menu) return "menu";
+      if (region.hash === snap.regionHash) return "same";
+    }
+    return "changed";
+  }
+
+  // Only from the person's Enter in the field, and only when the agent still matches the snapshot.
+  sendReply(cx) {
+    const ui = this.ui;
+    if (ui?.kind !== "reply" || ui.check !== "ready" || ui.sending) return;
+    const body = sendBody(ui.input.value());
+    if (!body) return;
+    if (sendingTo.has(ui.address)) {
+      ui.busy = true;
+      cx.notify();
+      return;
+    }
+    const { address, snap } = ui;
+    const token = (ui.token = ++this.seq);
+    const mine = () => this.ui === ui && ui.token === token;
+    ui.sending = true;
+    ui.busy = false;
+    sendingTo.add(address);
+    cx.notify();
+    cx.spawn(async (cx) => {
+      try {
+        const verdict = await this.recheck(snap, address, cx).catch(() => "unreadable");
+        if (!mine()) return; // closed or looked again: nothing goes out
+        if (verdict !== "same") {
+          ui.check = verdict;
+          return;
+        }
+        const argv = replyArgs(address, body, snap.state);
+        if (!argv) {
+          ui.check = "refused";
+          return;
+        }
+        const r = await hc(argv).catch(() => null);
+        if (!r) {
+          notify({ title: "Couldn't send the reply.", body: "It may still arrive, so check the agent before sending again.", level: "warning" });
+          if (mine()) ui.check = "unknown";
+          return;
+        }
+        if (r.code === 0) {
+          if (landedLate(snap, r.stdout)) notify({ title: "Reply sent after the agent moved on", body: "Check its terminal.", level: "warning" });
+          if (mine()) this.ui = null;
+          return;
+        }
+        // Fixed text only: hc's own message can echo the reply.
+        const e = sendErrorText(r.stderr);
+        if (e.state === "changed") {
+          if (mine()) ui.check = "moved";
+          return;
+        }
+        notify({ title: e.text, level: "error" });
+        if (e.state === "gone" && mine()) this.ui = null;
+      } finally {
+        sendingTo.delete(address);
+        ui.sending = false;
+        cx.notify();
+      }
     });
   }
 
@@ -302,14 +432,31 @@ export default class Overview extends View {
 
   replyRow(t, section, r) {
     const { a } = r;
-    return h_flex().id(`ov-a-${a.address}`).h(44).px(6).flex_none().gap(10).items_center().rounded(6).bg(t.selected)
+    const ui = this.ui;
+    const id = (n) => `ov-${n}-${a.address}`;
+    const note = ui.busy ? "A reply to this agent is still going out." : NOTES[ui.check];
+    const hint = ui.check === "loading" ? "Checking the agent\u2026"
+      : ui.sending ? "Checking\u2026"
+      : NOTES[ui.check] ? "Esc cancels"
+      : drifted(ui.snap, a.status, r.turn) ? "Its status changed. Enter will check again."
+      : "Enter sends \u00B7 Esc cancels";
+    const again = !ui.sending && ui.check !== "ready" && ui.check !== "loading";
+    return v_flex().id(`ov-a-${a.address}`).flex_none().rounded(6).bg(t.selected)
       .track_focus(this.keys).on_key_down((e, cx) => this.replyKey(e, cx))
-      .child(h_flex().w(14).flex_none().justify_center().child(this.status(t, section)))
-      .child(programIcon(a.program, 16, t.foreground))
-      .child(div().w(220).flex_none().truncate().font_semibold().child(r.title))
-      .child(h_flex().flex_1().min_w(0).h(28).px(8).items_center().rounded(6).border(1).border_color(t.border).bg(t.input)
-        .child(Input.new(this.ui.input).flex_1().h_full().text_size(TYPE.sm).text_color(t.foreground)))
-      .child(div().flex_none().text_size(TYPE.xs).text_color(metaColor(t)).child("Enter sends \u00B7 Esc cancels"));
+      .child(h_flex().h(44).px(6).gap(10).items_center()
+        .child(h_flex().w(14).flex_none().justify_center().child(this.status(t, section)))
+        .child(programIcon(a.program, 16, t.foreground))
+        .child(div().w(220).flex_none().truncate().font_semibold().child(r.title))
+        .child(h_flex().flex_1().min_w(0).h(28).px(8).items_center().rounded(6).border(1).border_color(t.border).bg(t.input)
+          .child(Input.new(ui.input).flex_1().h_full().text_size(TYPE.sm).text_color(t.foreground)))
+        .child(div().flex_none().text_size(TYPE.xs).text_color(metaColor(t)).child(hint)))
+      .when(Boolean(note), (el) => el.child(h_flex().pl(30).pr(6).pb(8).gap(8).items_center()
+        .child(div().flex_1().min_w(0).text_size(TYPE.xs).child(note))
+        .child(this.button(t, id("go"), "Go to agent", () => this.focusAgent(a)))
+        .when(again, (el) => el.child(this.button(t, id("look"), "Look again", (cx) => {
+          this.look(ui, cx);
+          ui.input.focus();
+        })))));
   }
 
   agentRow(t, section, r, now) {

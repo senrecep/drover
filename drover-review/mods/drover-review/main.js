@@ -11,7 +11,7 @@ import { exec, spaces, panes, focused, agents, terminals, theme, appHome, readTe
 import {
   gitArgs, parseStatus, parseNumstat, splitDiff, diffSignatures, buildFiles, countLines, EMPTY_TREE,
   parseStore, parseStat, readable, statSig, visibleIn, marksFor, isViewed, setMark, expireMarks, viewedCount, visibleFiles, totals, splitTurns, buildPrompt,
-  missingProgram, missingText, pythonCommands,
+  missingProgram, missingText, pythonCommands, sendArgv, sendFailText, SEND_TIMEOUT_MS,
 } from "./lib/logic.js";
 import { TYPE, SPACE, MINUS, mono, metaColor, diffStat, button, panelHeader, sectionLabel, emptyState, noRepoState } from "./lib/panel-ui.js";
 
@@ -294,10 +294,10 @@ export default class Review extends View {
     cx.notify();
     cx.spawn(async (cx) => {
       try {
-        const r = await exec("hc", ["send", a.address, a.text], { timeout: 15_000 });
+        const r = await exec("hc", sendArgv(a.address, a.text), { timeout: SEND_TIMEOUT_MS });
         this.note = r.code === 0 ? `Sent to ${a.name}.` : "Could not send the prompt.";
       } catch (e) {
-        this.note = missingProgram(e) ? missingText("hc") : "Could not send the prompt.";
+        this.note = sendFailText(e);
       } finally {
         this.armed = null;
         this.busy.send = false;

@@ -33,7 +33,7 @@ What it touches:
   - git with read-only argument lists (status, numstat and diff) in the focused folder;
   - `stat`, in BSD or GNU form, to notice file changes;
   - `python3 -I probe.py turns` to read the agent's turns;
-  - `hc send <agent> <prompt>`, only on the second click of a draft button, with a 15 second timeout.
+  - `hc send -- <agent> <prompt>`, only on the second click of a draft button, with a 90 second timeout. If hc gives no answer in time, the panel says the prompt may still arrive.
 - Reads outside its folder: the focused space's checkout, and Claude Code transcripts under `~/.claude/projects` (or `CLAUDE_CONFIG_DIR`). The transcript is read from its end in 512 KB steps up to 8 MB, and only edit tool calls are kept. Prompt text is never read into the panel.
 - Writes: `mods/drover-review/.viewed.json` for the viewed marks. Nothing else.
 

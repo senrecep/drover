@@ -5,14 +5,25 @@
 //
 // drover-terminal-menu: a copy of Herdr's shipped `menu` mod (Apache-2.0, see NOTICE),
 // with "Open selection…" added to the pane menu: the terminal's selection goes to
-// drover-open, and the clipboard is put back as it was.
+// drover-open, and the clipboard is put back as it was. The tab menu's Close asks twice when an agent
+// in the tab is working or needs the user (close-guard.js).
 
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { run, props, closeOverlay, openOverlay, theme, keys, terminals, spaces, panes, exec, window } from "herdr";
+import { run, props, closeOverlay, openOverlay, theme, keys, terminals, spaces, panes, exec, window, agents } from "herdr";
 import { stripControl } from "./lib/guard.js";
+import { CONFIRM_MS, activeTabId, closePlan, press, liveArm } from "./close-guard.js";
 
 const OPEN_SELECTION = "drover-open.selection";
+// The tab menu's Close: handled here (the close guard), then runs tab.close.
+const TAB_CLOSE = "drover.tab-close";
+const isClose = (command) => command.endsWith(".close") || command === TAB_CLOSE;
+
+// Herdr's lists for the close guard; a list that throws is null, which the guard counts as busy.
+function closeData() {
+  const read = (f) => { try { return f(); } catch { return null; } };
+  return { spaces: read(spaces), panes: read(panes), agents: read(agents), terminals: read(terminals) };
+}
 const MAX_SELECTION = 4096;
 // How long terminal.copy gets to land in the clipboard.
 const COPY_WAIT_MS = 1500;
@@ -70,7 +81,7 @@ function items(p, git) {
       return [
         ["Rename", "tab.rename", { id: tg.id }],
         ["New tab", "tab.new", { space: tg.space }],
-        ["Close", "tab.close", { id: tg.id }],
+        ["Close", TAB_CLOSE, { id: tg.id }],
       ];
     case "space":
       return [
@@ -93,7 +104,7 @@ function items(p, git) {
 
 function menuIcon(command) {
   if (command === OPEN_SELECTION) return "mods/drover-terminal-menu/ui/text-select.svg";
-  const name = command.endsWith(".close") ? "x" : command.endsWith(".rename") ? "square-pen" : command.endsWith(".new") ? "plus" : command === "worktree" ? "git-branch" : command === "app.help" ? "terminal" : command === "app.theme" ? "settings" : command === "pane.split" ? "panel-right" : command === "pane.zoom" ? "square" : "terminal";
+  const name = isClose(command) ? "x" : command.endsWith(".rename") ? "square-pen" : command.endsWith(".new") ? "plus" : command === "worktree" ? "git-branch" : command === "app.help" ? "terminal" : command === "app.theme" ? "settings" : command === "pane.split" ? "panel-right" : command === "pane.zoom" ? "square" : "terminal";
   return `mods/workspace-chrome/${name}.svg`;
 }
 
@@ -142,6 +153,8 @@ export async function copySelection(cx, target) {
 
 // The key bound to a command, for the hint on the right.
 function shortcut(name, args) {
+  // The guarded tab Close shows tab.close's key, as the shipped menu does.
+  if (name === TAB_CLOSE) return shortcut("tab.close");
   // `pane.split:right` binds pane.split with { direction: "right" }.
   const value = args && Object.values(args)[0];
   const list = keys().filter((b) => b.section === "global" && (b.action === name || b.action === `${name}:${value}`));
@@ -206,10 +219,37 @@ export default class Menu extends View {
     });
   }
 
+  // Close in the tab menu: an idle tab closes at once. A busy one keeps the menu open, says what will
+  // end, and closes on a second Close within CONFIRM_MS (a double click counts once).
+  closeTab(id, cx) {
+    const now = Date.now();
+    const data = closeData();
+    const r = press(liveArm(this.closeArm, now), closePlan(id ?? activeTabId(data.spaces), data, "Click"), now);
+    this.closeArm = r.armed;
+    if (r.action === "fire" || r.action === "disarm") {
+      this.note = null;
+      closeOverlay(props()?.overlay);
+      if (r.action === "fire") run(...r.command);
+      return;
+    }
+    if (r.action === "arm") {
+      const armed = r.armed;
+      this.note = armed.text;
+      cx.timer.after(CONFIRM_MS + 50, (cx) => {
+        if (this.closeArm !== armed) return;
+        this.closeArm = null;
+        if (this.note === armed.text) this.note = null;
+        cx.notify();
+      });
+    }
+    cx.notify();
+  }
+
   choose(i, cx) {
     const it = items(props(), this.git)[i];
     if (!it) return;
     if (it[1] === OPEN_SELECTION) return this.openSelection(cx);
+    if (it[1] === TAB_CLOSE) return this.closeTab(it[2]?.id, cx);
     closeOverlay(props()?.overlay);
     if (it[1] === "worktree") openOverlay({ mod: "worktree", kind: "dialog", ...(it[2].action === "open" ? { width: 560, height: 480 } : { width: 440, height: 260 }), props: it[2] });
     else run(it[1], it[2]);
@@ -227,6 +267,8 @@ export default class Menu extends View {
       .bg(t.popover)
       .text_size(12.8)
       .on_key_down((e, cx) => {
+        // A held Enter (key repeat) on the Close row must not stand in for the second click.
+        if (e.key === "enter" && e.is_held && list[this.at]?.[1] === TAB_CLOSE) return;
         if (e.key === "down") this.at = (this.at + 1) % list.length;
         else if (e.key === "up") this.at = (this.at + list.length - 1) % list.length;
         else if (e.key === "enter") this.choose(this.at, cx);
@@ -237,7 +279,7 @@ export default class Menu extends View {
       .children(
         list.map((it, i) =>
           v_flex()
-            .when(i > 0 && (it[1].endsWith(".close") || it[1] === "app.help" || list[i - 1][1] === OPEN_SELECTION || (it[1] === "app.theme" && list[i - 1][1] !== "app.theme")), el => el.child(div().mx(7).my(4).h(1).bg(t.border)))
+            .when(i > 0 && (isClose(it[1]) || it[1] === "app.help" || list[i - 1][1] === OPEN_SELECTION || (it[1] === "app.theme" && list[i - 1][1] !== "app.theme")), el => el.child(div().mx(7).my(4).h(1).bg(t.border)))
             .child(h_flex()
             .id(`mi-${i}`)
             .h(31)
@@ -251,7 +293,8 @@ export default class Menu extends View {
             .hover((s) => s.bg(t.hover))
             .on_click((_e, cx) => this.choose(i, cx))
             .child(svg(menuIcon(it[1])).size(14).flex_none().text_color(t.muted))
-            .child(div().flex_1().child(it[1] === OPEN_SELECTION && this.grabbing ? "Reading selection…" : it[0]))
+            .child(div().flex_1().when(it[1] === TAB_CLOSE && Boolean(this.closeArm), (el) => el.text_color(t.blocked))
+              .child(it[1] === OPEN_SELECTION && this.grabbing ? "Reading selection…" : it[1] === TAB_CLOSE && this.closeArm ? "Click again to close" : it[0]))
             .child(div().text_size(11).text_color(t.dim).child(shortcut(it[1], it[2])))),
         ),
       )

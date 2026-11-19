@@ -46,7 +46,7 @@ What it touches:
 
 - Network: git fetch, pull and push, `gh` and `glab` calls, all with `GIT_TERMINAL_PROMPT=0`, so a call that would ask for a password fails with a short message instead. Links open in your browser, http and https only.
 - Programs: git, gh, glab, an optional Bitbucket helper you configure, `file`, rg or grep, ls, sh with fixed scripts, mv, mkdir, `/usr/bin/trash`, `open`. Each gets an argument list. git.js refuses `--force` and its forms, `-f` and `-D`, `+` and `:` refspecs, `--delete`, `--mirror`, `--no-verify`, `reset`, `clean` and `worktree remove` before anything starts.
-- `hc`: only `send`, when you click Ask agent a second time.
+- `hc`: only `send -- <agent> <text>`, when you click Ask agent a second time.
 - Reads outside its folder: the repository, the files you open, `data/drover-git/settings.json` if you made one, and `mods/drover-viewer/mod.json` to see if the viewer is installed.
 - Writes: Git writes only through the git actions above. The viewer saves when you press Save and keeps drafts and an image cache in `data/drover-viewer/`. Open with keeps your last choice per kind in `data/drover-open/prefs.json`. Files creates, renames and trashes only on a click.
 
