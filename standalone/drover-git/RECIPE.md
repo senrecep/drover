@@ -16,9 +16,9 @@ The dialog follows the repository of the focused pane. When that pane has no fol
 
 The other three mods:
 
-- drover-viewer opens a file in a pane. Markdown gets a preview and a Source tab, code gets an editor with syntax colors, images show as images, files over 1 MiB open as a read-only window of 2,000 lines.
+- drover-viewer opens a file in a pane. Markdown gets a preview and a Source tab, code gets an editor with syntax colors, images show as images, files over 1 MiB open as a read-only window of 2,000 lines. The open file reloads when it changes on disk, or shows a banner when you have unsaved edits.
 - drover-open is the "Open with" chooser for a link, a path or any text.
-- drover-files is a file tree that follows the focused pane's folder and opens files in drover-viewer.
+- drover-files is a file tree that follows the focused pane's folder and opens files in drover-viewer. A single click opens a preview pane that the next single click reuses; a double click pins it.
 
 ## How it behaves
 

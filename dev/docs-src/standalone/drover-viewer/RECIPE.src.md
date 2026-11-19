@@ -26,8 +26,9 @@ The tree (drover-files) follows the focused pane's folder, dims git-ignored name
 - While you edit, a draft is saved every 1.5 seconds. It is offered again when you reopen the file, and removed after a save or a revert.
 - Links in Markdown: http and https open in the browser, or in the chooser if you switch the Links button to it. Relative and `file://` links open in the same pane, and `#L12` jumps to line 12. Back returns to the previous file.
 - Revert needs two presses within 4 seconds.
+- The open file is watched. A change made elsewhere reloads a clean buffer, and with unsaved edits a banner offers Reload from disk, Show diff or Dismiss. A deleted or moved file shows a banner. A file over 1 MiB only shows the banner.
 - In the chooser, Up and Down move, Enter runs, 1 to 9 run that row, A toggles "always", Esc closes.
-- In the tree, a click on a folder expands it and a click on a file opens it beside the panel. Right-click gives New file, New folder, Rename, Move to Trash (two clicks), Copy path and more.
+- In the tree, a click on a folder expands it. A single click on a file opens it in a preview pane beside the panel, and the next single click reuses that pane. A double click or the viewer's Keep open button pins it; Enter, the menu and Cmd-click (Ctrl-click on Linux and Windows) open a separate pinned viewer. A viewer with unsaved edits is never replaced. Right-click gives New file, New folder, Rename, Move to Trash (two clicks), Copy path and more.
 
 Keys from this item's `keys.json`:
 

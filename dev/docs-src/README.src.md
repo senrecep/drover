@@ -2,6 +2,8 @@
 
 drover is a layout for [Herdr](https://herdr.dev), the terminal app built for running coding agents. It gives the window a sidebar of spaces and agents, a tab bar with a run button, a header on every pane, and a side panel you can switch between files, review, git, ports, pull requests and a few more panels.
 
+In the sidebar, an agent that finished its turn but still has background work running shows under Background.
+
 The mods behind it also install one at a time. If you like your own layout, add the Git dialog or the port list to it and leave the rest.
 
 The mods run on your machine, and on the machines you connected to Herdr. They call programs you already have, such as git, gh, lsof and sqlite3, and pass their arguments as lists. A shell only runs a fixed script or a command you saved yourself. Anything that deletes, merges, pushes, stops a process or sends one message to several agents waits for a second click.
@@ -42,7 +44,7 @@ drover-git, a Git dialog for branches, merges, pushes and pull requests. It brin
 <!-- install:standalone/drover-git -->
 <!-- /install -->
 
-drover-viewer, a file viewer and editor pane with an "Open with" chooser and a file tree.
+drover-viewer, a file viewer and editor pane with an "Open with" chooser and a file tree. The open file reloads when it changes on disk, and a single click in the tree reuses one preview pane.
 
 <!-- install:standalone/drover-viewer -->
 <!-- /install -->

@@ -3,7 +3,7 @@
 // One class, three roles: the panel (default), its right-click menu (props.menu, a popup) and a name prompt (props.ask, a dialog).
 import { View, div, svg, image } from "gpui-kit";
 import { v_flex, h_flex, Editor, EditorState, InputState, Input } from "gpui-base";
-import { spaces, panes, focused, readTextFile, watchFolder, theme, settings, home, props, shared, setShared, openOverlay, closeOverlay, nextCommand } from "herdr";
+import { spaces, panes, focused, readTextFile, watchFolder, theme, settings, home, props, shared, setShared, openOverlay, closeOverlay, nextCommand, run } from "herdr";
 import { resolveIcon } from "./lib/icons.js";
 import { TYPE, mono, metaColor, panelHeader, iconButton, button, emptyState } from "./lib/panel-ui.js";
 import { redact, stripControl } from "./lib/guard.js";
@@ -15,9 +15,10 @@ import {
   SEARCH_NEEDS_SH, networkRoot, NETWORK_ROOT,
 } from "./model.js";
 import {
-  platform, listFolder, buildIndex, gitMarks, ignoredIn, openCheck, viewerInstalled, openInViewer, openSystem, reveal,
+  platform, listFolder, buildIndex, gitMarks, ignoredIn, openCheck, viewerInstalled, openInViewer, splitViewer, openSystem, reveal,
   trashAvailable, moveToTrash, newFile, newFolder, renameEntry,
 } from "./ops.js";
+import { PreviewReuse, routeClick } from "./reuse.js";
 
 const UI = (name) => `mods/${MOD}/ui/${name}.svg`;
 const LOCK = `mods/${MOD}/icons/lock.svg`;
@@ -39,6 +40,9 @@ export default class DroverFiles extends View {
     this.saved = new Map(); this.entries = new Map(); this.folders = new Set(); this.pending = new Set(); this.marks = {};
     this.ignored = new Map();   // folder rel -> Set of git-ignored names in it, refreshed with each listing
     this.opened = new Map(); this.selected = null; this.preview = null; this.status = null;
+    // One click previews in a reused viewer pane (a slot this copy made); a double click keeps that pane open.
+    this.reuse = new PreviewReuse({ panes, focusedTab: () => focused()?.tab ?? null, get: shared, set: setShared, run,
+      now: () => Date.now(), rand: Math.random, lockReason, split: splitViewer });
     this.query = ""; this.index = null; this.indexing = false; this.filterTotal = 0;
     this.viewer = true; this.canTrash = "absent";
     // Messages already in shared storage come from before this copy: never act on them.
@@ -234,12 +238,53 @@ export default class DroverFiles extends View {
         if (!check.ok) return this.say(`Not opened: ${check.why}`, "warning", cx);
         this.viewer = await viewerInstalled(Date.now()).catch(() => false);
         if (this.viewer) {
+          // Opened pinned: never land in a preview pane that the next click would retarget, nor in a slot pane that
+          // shows another file since.
+          this.reuse.dropForPinned(this.opened, abs);
           const r = await openInViewer(abs, on, this.opened, ms => cx.sleep(ms));
           if (r.how === "unknown") this.say("Asked drover-viewer to open it; no new pane showed up", "warning", cx);
           return;
         }
         if (this.context === context) this.showPreview(abs, cx);
       } catch (e) { this.say(firstLine(e), "error", cx); }
+      finally { cx.notify(); }
+    });
+  }
+
+  // A click on a row. Folders toggle on every click; files: one click previews, a double click keeps the preview open,
+  // a platform-modifier click (or Ctrl on Linux and Windows) opens pinned (as Enter and the menu do).
+  clickRow(r, e, cx) {
+    if (r.dir) return this.activate(r, cx);
+    const how = routeClick(e, platform());
+    if (how === "none") return;
+    this.selected = r.rel;
+    const abs = absOf(this.root, r.rel);
+    if (how === "pinned") return this.openFile(abs, cx);
+    if (how === "pin") {
+      cx.spawn(async cx => {
+        try { await this.reuse.pinClick(abs, this.opened, ms => cx.sleep(ms)); }
+        catch (e) { this.say(firstLine(e), "error", cx); }
+        finally { cx.notify(); }
+      });
+      return cx.notify();
+    }
+    this.previewFile(abs, cx);
+  }
+
+  // Same checks as openFile, then the preview pane: focus, retarget (acked by the viewer) or a new preview split.
+  previewFile(abs, cx) {
+    const lock = lockReason(abs);
+    if (lock) return this.say(`Not opened: ${lock}`, "warning", cx);
+    const on = this.on, context = this.context, ticket = this.reuse.begin(abs);
+    cx.spawn(async cx => {
+      try {
+        const check = await openCheck(abs, on);
+        if (!check.ok) { this.reuse.cancel(ticket); return this.say(`Not opened: ${check.why}`, "warning", cx); }
+        this.viewer = await viewerInstalled(Date.now()).catch(() => false);
+        if (!this.viewer) { this.reuse.cancel(ticket); if (this.context === context) this.showPreview(abs, cx); return; }
+        const r = await this.reuse.preview(ticket, { abs, real: check.real, on, opened: this.opened, sleep: ms => cx.sleep(ms) });
+        if (r.how === "unknown") this.say("Asked drover-viewer to open it; no new pane showed up", "warning", cx);
+      } catch (e) { this.reuse.cancel(ticket); this.say(firstLine(e), "error", cx); }
       finally { cx.notify(); }
     });
   }
@@ -358,7 +403,7 @@ export default class DroverFiles extends View {
     const icon = lock ? LOCK : resolveIcon(MOD, r.dir, r.name, { open: r.open });
     return h_flex().id(`row-${r.rel}`).h(26).flex_none().pl(8 + r.depth * 16).pr(8).gap(6).items_center().rounded(6).cursor_pointer()
       .when(r.rel === this.selected, el => el.bg(t.hover)).hover(s => s.bg(t.hover))
-      .on_click((_e, cx) => { this.handle.focus(); this.activate(r, cx); })
+      .on_click((e, cx) => { this.handle.focus(); this.clickRow(r, e, cx); })
       .on_mouse_down("right", (_e, cx) => this.openMenu(r, cx))
       .child(r.dir && !r.flat ? svg(UI(`chevron-${r.open ? "down" : "right"}`)).size(12).flex_none().text_color(t.dim) : div().w(12).flex_none())
       .child(image(icon).size(16).flex_none())

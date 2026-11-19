@@ -122,22 +122,30 @@ export async function openInViewer(abs, on, opened, sleep) {
   const known = opened.get(abs);
   if (known && panes().some(p => p.pane === known)) { run("pane.focus", { pane: known }); return { pane: known, how: "focused" }; }
   if (known) opened.delete(abs);
-  const before = new Set(panes().map(p => p.pane));
   const props = { path: abs, file: abs };
   if (on) props.on = on;
+  const made = await splitViewer(props, sleep);
+  if (made.pane) opened.set(abs, made.pane);
+  return made;
+}
+
+// Splits a drover-viewer pane with these props beside the focused pane, or opens it in a tab of its own when there
+// is nothing to split beside. Returns {pane, how}; pane is null when no new pane showed up.
+export async function splitViewer(props, sleep) {
+  const before = new Set(panes().map(p => p.pane));
   const newPane = () => panes().find(p => !before.has(p.pane) && p.mod === "drover-viewer");
   run("pane.split", { direction: "right", mod: "drover-viewer", props });
   for (let i = 0; i < 6; i++) {
     await sleep(80);
     const made = newPane();
-    if (made) { opened.set(abs, made.pane); return { pane: made.pane, how: "split" }; }
+    if (made) return { pane: made.pane, how: "split" };
   }
   // Nothing to split beside (no focused pane in this tab): a tab of its own.
   run("tab.new", { mod: "drover-viewer", props });
   for (let i = 0; i < 6; i++) {
     await sleep(80);
     const made = newPane();
-    if (made) { opened.set(abs, made.pane); return { pane: made.pane, how: "tab" }; }
+    if (made) return { pane: made.pane, how: "tab" };
   }
   return { pane: null, how: "unknown" };
 }

@@ -58,6 +58,25 @@ A file also opens read-only when saving would change it in ways you did not ask 
   `<app home>/data/drover-viewer/drafts/<hash>.json`. The draft is removed after a save or a revert. When you
   reopen the file, the draft is offered (Restore / Discard), and marked when the file changed since.
 
+## Live reload
+
+The open file is watched. When another program changes it, a clean buffer reloads and the path line says
+"Reloaded" for 2 s. With unsaved edits, nothing is replaced: a banner says the file changed on disk and your
+edits are still here, with Reload from disk, Show diff and Dismiss. When the file is moved or deleted, a clean
+viewer shows the missing card and keeps watching, so the file shows up again if it comes back; with unsaved
+edits, a banner says it was moved or deleted. A file on another machine is checked every 5 s instead, and a
+banner says when live reload is paused for it. In the read-only window of lines (files over 1 MiB), a change
+only shows a banner and the view is not reloaded by itself.
+
+## Preview pane
+
+When drover-files opens a file with a single click, the viewer shows "Preview" in its header and a Keep open
+button. The next single click in the panel opens its file in this same pane. Keep open, or a double click in
+the panel, pins it. Typing an edit pins it too. A viewer with unsaved edits, a conflict or a draft offer is
+never replaced, and the click opens a new pane instead. The panel sends the file to a preview pane with the
+shared keys `drover-viewer.open` and `drover-viewer.slots`; a viewer opened with `props` or from the menu is
+never a preview.
+
 ## Links in Markdown
 
 - Web links (http/https) open in the system browser. If the `drover-open` mod is installed and the

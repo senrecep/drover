@@ -13,6 +13,10 @@ fixed folder, and opens files in drover-viewer.
 - Click a folder to expand it. Click a file to open it in `drover-viewer` beside the panel
   (`pane.split` right, props `{path, file}`). Clicking it again focuses the same viewer pane while it
   is open. Without drover-viewer installed, a read-only inline preview opens, with secrets masked.
+- A single click on a file opens it in a preview viewer pane, and the next single click reuses that pane
+  for its file. A double click, or the Keep open button in the viewer, pins the pane. Enter, Open in
+  viewer on the menu, and Cmd-click (Ctrl-click on Linux and Windows) open a separate pinned viewer.
+  A viewer with unsaved edits is never replaced; a new pane opens instead.
 - Right-click a row (or empty space for the root): Open in viewer, Open with system app,
   Reveal in Finder (Show in file manager on Linux, Show in Explorer on Windows), Copy path,
   Copy relative path, New file, New folder, Rename, Move to Trash.

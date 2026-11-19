@@ -2,7 +2,7 @@
 // windowed read-only view for large files, CAS save with conflict handling and draft autosave.
 import { View, div, image } from "gpui-kit";
 import { v_flex, h_flex, Editor, EditorState, TextView, Scrollbar, v_virtual_list, VirtualListScrollHandle, InputState, Input } from "gpui-base";
-import { props, focused, panes, exec, readTextFile, writeTextFile, theme, settings, appHome, home, run, openOverlay, shared, setShared, nextCommand, window } from "herdr";
+import { props, focused, panes, exec, readTextFile, writeTextFile, watchFolder, theme, settings, appHome, home, run, openOverlay, shared, setShared, nextCommand, window } from "herdr";
 import * as fs from "fs/promises";
 import { MAX_BYTES, utf8Length, isBinary } from "./lib/lang.js";
 import { denyReason, stripControl } from "./lib/guard.js";
@@ -12,9 +12,13 @@ import {
   IMAGE_MAX, WINDOW_LINES, LINK_KEY, normalizeTarget, nameOf, extOf, kindOf, languageOf, redactInfo, parseCount, readOnlyReason,
   splitLines, lineWindow, parseLineInput, classifyLink, displayUrl, linkMode, draftName, cachePrefix, cacheName, draftOffer, makeDraft,
   formatBytes, ago, saveErrorKind, shortError, lineTotal, launchRisk, revealLabel, revealArgv, openArgv, openerWorked, openError, readError, explorerProblem,
-  windowsParts, winLinkArgv, WIN_LINK_PLAIN, WIN_LINK_MARK,
+  windowsParts, winLinkArgv, WIN_LINK_PLAIN, WIN_LINK_MARK, fnv1a, notFound,
 } from "./model.js";
 import { lineDiff } from "./diff.js";
+import {
+  RELOAD_MS, RELOAD_LARGE_MS, POLL_MS, MISSING_RETRY_MS, REARM_MS, RELOADED_MS, OPEN_KEY, SLOTS_KEY, SLOTS_MAX, OPEN_CHECK_MS, ACK_BY_MS, RESULTS, TEXT,
+  held, reloadAction, watchDir, batchHits, batchNames, openMessage, planOpen, withSlot, slotStart, validSlot, parseCksum, pollDelay, checkDelay, clampRange, nextRearm,
+} from "./reload.js";
 import { TYPE, mono, metaColor, panelHeader, emptyState, button, iconButton } from "./lib/panel-ui.js";
 
 const MOD = "drover-viewer";
@@ -22,6 +26,10 @@ const WINDOW_BYTES = 4 * 1024 * 1024;
 const RASTER_MIME = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 const UI = (name) => `mods/${MOD}/ui/${name}.svg`;
 const MODE_LABEL = { preview: "Preview", source: "Source", edit: "Editor", lines: "Lines", image: "Image" };
+// The Windows block's message for a path through a link or junction: a live reload drops the file on it.
+const LINKED = "This path goes through a link or junction, which could lead to a credential file, so it is not opened.";
+// Statuses whose file passed the gate and is shown: a click on the same file there needs no new load.
+const SHOWN = ["text", "large", "image", "binary", "info"];
 // Copies share module scope: the copy the user touched last, and which pane each copy is in.
 let active = null;
 const claims = new Map();
@@ -40,10 +48,26 @@ export default class Viewer extends View {
     this.lineHandle = VirtualListScrollHandle.new();
     this.goto = InputState.new({ placeholder: "Go to line" });
     this.goto.on("submit", (_e, cx) => { this.gotoLine(this.goto.value(), cx); cx.notify(); });
+    this.watchGen = 0;
     active = this.id;
     this.claim();
-    this.open(normalizeTarget(props(), home(), platform()), cx);
+    // Preview reuse: only a viewer split with a slot id listens for open messages; one without stays pinned.
+    const p = props() ?? {};
+    this.slot = validSlot(p.slot) ? p.slot : null;
+    this.preview = Boolean(this.slot) && p.preview === true;
+    this.lastSeq = 0;
+    let start = p;
+    if (this.slot) {
+      // A retarget survives a restart: the slot entry names the file shown last, and it goes through the same gate.
+      const s = slotStart(shared(SLOTS_KEY), this.slot);
+      if (s) { start = { path: s.path, on: s.on }; this.preview = s.preview; this.lastSeq = s.seq; }
+    }
+    this.ackSeq = this.lastSeq;
+    // What the slot entry last said (or what drover-files split this pane with): a write happens only when it changes.
+    this.sent = { dirty: false, preview: this.preview, result: null };
+    this.open(normalizeTarget(start, home(), platform()), cx);
     cx.timer.every(1500, (cx) => { if (this.draftDue) cx.spawn(async (cx) => { await this.flushDraft(); cx.notify(); }); });
+    if (this.slot) cx.timer.every(OPEN_CHECK_MS, (cx) => this.checkOpen(cx));
     cx.spawn(async (cx) => {
       try { this.chooser = await fs.exists(`${appHome()}/mods/drover-open/main.js`); } catch (e) { this.chooser = false; }
       cx.notify();
@@ -81,9 +105,11 @@ export default class Viewer extends View {
     else if (c === "revert") this.revert(cx);
     else if (c === "reload") cx.spawn(async (cx) => { await this.reload(cx); cx.notify(); });
     else if (c === "back") this.back(cx);
+    else if (c === "keep-open") this.keepOpen();
   }
 
   reset(target) {
+    this.stopWatch();
     this.editor?.release();
     this.editor = null;
     this.gen++;
@@ -98,16 +124,38 @@ export default class Viewer extends View {
     this.confirmRevert = false; this.lines = null; this.win = null; this.image = null; this.draftDue = false;
     this.fit = target.path ? extOf(target.path) === "svg" : false;
     this.focusLine = null; this.scrollPending = null; this.previewText = null; this.previewRev = (this.previewRev ?? 0) + 1;
+    // Live reload state: the on-disk change banner, a deleted file, a path that now leads elsewhere, the remote poll.
+    this.outside = null; this.gone = false; this.away = false; this.flash = false; this.dismissed = null; this.paused = false;
+    this.checking = false; this.recheck = false; this.named = false; this.checkTimer = null; this.lastCheck = null;
+    this.sig = undefined; this.sizeOnly = false; this.pollFails = 0; this.seenBytes = null;
   }
 
-  open(target, cx) {
+  open(target, cx, pre) {
     this.reset(target);
-    if (!target.error) { const gen = this.gen; cx.spawn(async (cx) => { await this.load(gen); cx.notify(); }); }
+    if (!target.error) {
+      const gen = this.gen;
+      cx.spawn(async (cx) => { await this.load(gen, pre); if (this.live(gen)) { this.startWatch(cx); this.syncSlot(); } cx.notify(); });
+    } else this.syncSlot();
   }
 
   live(gen) { return gen === this.gen && !this.closed; }
 
-  async load(gen) {
+  // The checks every read goes through: the first load, each live reload, and a preview retarget before it happens.
+  // Credential names, links, then the size. `target` defaults to the shown one. -> {ok: true, real, bytes} or
+  // {status, message, real?, link?}; null once the view moved on.
+  // pathGate runs on a probe that inherits from this view, so the shared Windows block's writes to this.status and
+  // this.message land on the probe: a failed check never touches the shown file.
+  async gate(gen, target = this.target) {
+    const probe = Object.create(this);
+    probe.target = target;
+    const g = await this.pathGate.call(probe, gen);
+    if (!this.live(gen)) return null;
+    if (Object.prototype.hasOwnProperty.call(probe, "status")) return { status: probe.status, message: probe.message ?? null, link: probe.message === LINKED };
+    return g ?? null;
+  }
+
+  // Called with `this` set to a probe (see gate). The Windows block below is byte-identical to the pre-wave-2 copy.
+  async pathGate(gen) {
     const t = this.target, on = t.on;
     try {
       // A link opened from a file skips normalizeTarget, so local Windows trims the parts here too.
@@ -138,20 +186,33 @@ export default class Viewer extends View {
           return;
         }
       }
-      if (!this.live(gen)) return;
+      if (!this.live(gen)) return null;
       why = denyReason(real);
-      if (why) { this.status = "denied"; this.message = why; return; }
-      this.real = real;
-      this.kind = kindOf(real);
+      if (why) return { status: "denied", message: why, moved: real };
       const wc = await exec("wc", ["-c", real], { on, timeout: 10000 });
-      if (!this.live(gen)) return;
+      if (!this.live(gen)) return null;
       if (wc.code !== 0) {
         const err = String(wc.stderr || "");
-        this.status = /no such file/i.test(err) ? "missing" : /is a directory/i.test(err) ? "folder" : "error";
-        this.message = this.status === "error" ? (/permission/i.test(err) ? "Permission denied" : "Can't read this file") : null;
-        return;
+        const status = /no such file/i.test(err) ? "missing" : /is a directory/i.test(err) ? "folder" : "error";
+        return { status, real, message: status === "error" ? (/permission/i.test(err) ? "Permission denied" : "Can't read this file") : null };
       }
-      this.bytes = parseCount(wc.stdout);
+      return { ok: true, real, bytes: parseCount(wc.stdout) };
+    } catch (e) {
+      this.status = "error"; this.message = readError(e, platform(), on);
+      return null;
+    }
+  }
+
+  // `pre` is a gate result the caller already has for this target (a preview retarget checks before it changes anything).
+  async load(gen, pre) {
+    const t = this.target, on = t.on;
+    try {
+      const g = pre ?? await this.gate(gen);
+      if (!g || !this.live(gen)) return;
+      if (g.real) { this.real = g.real; this.kind = kindOf(g.real); }
+      if (!g.ok) { this.status = g.status; this.message = g.message; return; }
+      const real = g.real;
+      this.bytes = g.bytes;
       this.exe = on ? false : await isExecutable(real);
       if (!this.live(gen)) return;
       if (this.kind === "image") return await this.loadImage(gen);
@@ -210,10 +271,16 @@ export default class Viewer extends View {
 
   changed(cx) {
     if (!this.editor || this.ro) return;
-    this.dirty = this.editor.value() !== this.disk;
+    const dirty = this.editor.value() !== this.disk;
+    // A clean buffer that stays clean (a live reload putting the disk text in) is not an edit.
+    if (!dirty && !this.dirty) return;
+    this.dirty = dirty;
     this.draftDue = true;
     this.confirmRevert = false;
     this.note = null;
+    // Any edit keeps a preview open: it is pinned from here on.
+    if (dirty) this.preview = false;
+    this.syncSlot();
     cx.notify();
   }
 
@@ -346,7 +413,8 @@ export default class Viewer extends View {
   }
 
   async save(cx) {
-    if (!this.editor || this.ro || this.saving || this.target.on) return;
+    // A path that now leads somewhere else is never written through.
+    if (!this.editor || this.ro || this.saving || this.target.on || this.away) return;
     const text = this.editor.value();
     if (utf8Length(text) > MAX_BYTES) { this.error = "Can't save: the text is larger than 1 MiB"; return; }
     this.saving = true;
@@ -355,6 +423,7 @@ export default class Viewer extends View {
       await writeTextFile(this.real, text, this.expected);
       this.disk = text; this.expected = text; this.dirty = false; this.conflict = null; this.diff = null; this.offer = null;
       this.error = null; this.confirmRevert = false; this.draftDue = false; this.note = "Saved";
+      this.outside = null; this.gone = false; this.dismissed = null;
       this.shown = redactInfo(text).text;
       if (this.mode === "preview" || this.mode === "lines") this.setMode(this.mode);
       await this.deleteDraft();
@@ -365,6 +434,10 @@ export default class Viewer extends View {
       else if (kind === "size") this.error = "Can't save: larger than 1 MiB";
       else this.error = `Save failed: ${shortError(e)}`;
     } finally { this.saving = false; }
+    if (this.conflict) this.outside = null; // the conflict banner says it already
+    this.syncSlot();
+    // A change seen while saving is looked at now; our own write compares equal to the new disk text.
+    if (this.recheck) { this.recheck = false; this.queueCheck(cx, this.watchGen, RELOAD_MS); }
   }
 
   // Reload discards the buffer, so it is kept as a draft first (offered again after loading).
@@ -405,6 +478,7 @@ export default class Viewer extends View {
     this.dirty = false;
     this.draftDue = false;
     this.offer = null;
+    this.syncSlot();
     cx.spawn(async (cx) => { await this.deleteDraft(); cx.notify(); });
   }
 
@@ -414,6 +488,8 @@ export default class Viewer extends View {
     this.dirty = this.offer.text !== this.disk;
     this.offer = null;
     this.draftDue = true;
+    if (this.dirty) this.preview = false;
+    this.syncSlot();
     this.setMode(this.modes.includes("source") ? "source" : "edit");
   }
 
@@ -494,11 +570,357 @@ export default class Viewer extends View {
     cx.notify();
   }
 
+  // ---------- live reload ----------
+
+  // Watched: a file that loaded fine, never a refused one, never the viewer's own image cache.
+  watchable() {
+    if (this.closed || !this.real || this.target.error) return false;
+    if (!["text", "large", "image"].includes(this.status)) return false;
+    if (denyReason(this.real) || denyReason(this.target.path)) return false;
+    const own = dataDir().replace(/\\/g, "/") + "/", real = String(this.real).replace(/\\/g, "/");
+    return this.target.on ? true : !real.startsWith(own);
+  }
+
+  watching(wg) { return wg === this.watchGen && !this.closed; }
+
+  stopWatch() {
+    this.watchGen = (this.watchGen ?? 0) + 1;
+    const w = this.watch;
+    this.watch = null;
+    try { this.checkTimer?.cancel(); } catch (e) { /* done already */ }
+    this.checkTimer = null;
+    try { w?.cancel(); } catch (e) { /* settled already */ }
+  }
+
+  startWatch(cx) {
+    this.stopWatch();
+    if (!this.watchable()) return;
+    const wg = this.watchGen;
+    this.paused = false;
+    if (this.target.on) { cx.spawn(async (cx) => { await this.pollRemote(cx, wg); cx.notify(); }); return; }
+    const dir = watchDir(this.real);
+    cx.spawn(async (cx) => {
+      // The first arm looks at the file once.
+      let first = true, rearm = REARM_MS;
+      for (;;) {
+        if (!this.watching(wg)) return;
+        let w;
+        try { w = watchFolder(dir); } catch (e) { this.pollLocal(cx, wg); return; }
+        this.watch = w;
+        if (first) { this.queueCheck(cx, wg, RELOAD_MS); first = false; }
+        let batch;
+        try { batch = await w; } catch (e) {
+          // Linux limits, the 64-watch cap, an ignored folder: poll instead.
+          if (this.watching(wg)) this.pollLocal(cx, wg);
+          return;
+        }
+        if (!this.watching(wg)) return;
+        if (!Array.isArray(batch) || !batch.length) {
+          // Released without our cancel: the host reclaimed it. Watch again after a pause that doubles up to the poll
+          // interval, and run no check: a host that reclaims idle watches every second would otherwise run the full
+          // gate every second. A change inside the pause leaves the view stale until the next hit; saves compare
+          // against the text they loaded, so a stale buffer still can't overwrite it.
+          await cx.sleep(rearm);
+          rearm = nextRearm(rearm);
+          continue;
+        }
+        rearm = REARM_MS;
+        if (batchHits(batch, this.real)) {
+          if (batchNames(batch, this.real)) this.named = true;
+          this.queueCheck(cx, wg, this.status === "large" ? RELOAD_LARGE_MS : RELOAD_MS);
+        }
+      }
+    });
+  }
+
+  // Local fallback: look every few seconds (a full check compares text, or size for large files).
+  pollLocal(cx, wg) {
+    if (!this.watching(wg)) return;
+    this.queueCheck(cx, wg, RELOAD_MS);
+    cx.timer.after(POLL_MS, (cx) => this.pollLocal(cx, wg));
+  }
+
+  // One pending check at a time: hits inside the wait fold into it, and checks keep a gap between them.
+  queueCheck(cx, wg, base) {
+    if (!this.watching(wg)) return;
+    if (this.checking || this.saving) { this.recheck = true; return; }
+    if (this.checkTimer) return;
+    this.checkTimer = cx.timer.after(checkDelay(base, this.lastCheck, Date.now()), (cx) => {
+      this.checkTimer = null;
+      cx.spawn(async (cx) => { await this.check(cx, wg); cx.notify(); });
+    });
+  }
+
+  async check(cx, wg) {
+    if (!this.watching(wg)) return;
+    if (this.checking || this.saving) { this.recheck = true; return; }
+    this.checking = true;
+    this.recheck = false;
+    try { await this.checkOnce(cx, wg); }
+    catch (e) { /* fail closed: nothing changes, the next hit looks again */ }
+    finally {
+      this.checking = false;
+      this.lastCheck = Date.now();
+      if (this.recheck && this.watching(wg)) { this.recheck = false; this.queueCheck(cx, wg, RELOAD_MS); }
+    }
+  }
+
+  async checkOnce(cx, wg) {
+    const gen = this.gen, on = this.target.on;
+    const ok = () => this.watching(wg) && this.live(gen);
+    const named = this.named;
+    this.named = false;
+    let g = await this.gate(gen);
+    if (!g || !ok()) return;
+    if (g.status === "missing" || g.status === "folder") {
+      // An atomic rename save removes the file for a moment: look once more before calling it gone.
+      await cx.sleep(MISSING_RETRY_MS);
+      if (!ok()) return;
+      g = await this.gate(gen);
+      if (!g || !ok()) return;
+    }
+    // Now refused, or resolving somewhere else: stop watching and keep nothing that could be saved there.
+    if (g.status === "denied" || g.link) return this.leave();
+    if (g.status === "missing" || g.status === "folder") return this.fileGone();
+    if (!g.ok) return; // a check that failed for another reason changes nothing
+    if (g.real !== this.real) return this.leave();
+    if (this.status === "missing") { this.open(this.target, cx); return; } // it came back
+    this.gone = false;
+    if (!on) { this.exe = await isExecutable(g.real); if (!ok()) return; }
+    if (this.status === "large") return this.largeChanged(g.bytes);
+    if (this.status === "image" && !this.editor) {
+      if (named || g.bytes !== this.bytes) { this.bytes = g.bytes; await this.copyImage(); }
+      return;
+    }
+    if (g.bytes > MAX_BYTES) return this.largeChanged(g.bytes);
+    let text;
+    try { text = await readTextFile(g.real, { on }); }
+    catch (e) {
+      if (!ok()) return;
+      const m = shortError(e);
+      if (/utf-?8/i.test(m)) return this.becameBinary(g.bytes);
+      if (/exceeds 1 MiB/i.test(m)) return this.largeChanged(g.bytes);
+      return;
+    }
+    if (!ok()) return;
+    if (text === null) return this.fileGone();
+    if (isBinary(text)) return this.becameBinary(g.bytes);
+    this.applyText(text, g.bytes, cx);
+  }
+
+  // A change the buffer can take, keep beside it, or ignore.
+  applyText(text, bytes, cx) {
+    if (text === this.disk) { this.outside = null; return; }
+    const r = redactInfo(text), ro = readOnlyReason({ on: this.target.on, redacted: r.count, bytes, text });
+    const s = { dirty: this.dirty, saving: this.saving, conflict: this.conflict, outside: this.outside, offer: this.offer };
+    const action = reloadAction({ ...s, same: false, roChanged: ro !== this.ro });
+    if (action === "banner") {
+      const sum = fnv1a(text);
+      if (this.dismissed === sum || this.conflict) return;
+      this.outside = { sum };
+      return;
+    }
+    this.disk = text; this.expected = text; this.shown = r.text; this.redacted = r.count; this.bytes = bytes;
+    this.outside = null; this.dismissed = null;
+    if (action === "rebuild" || !this.editor) { this.ro = ro; this.makeEditor(); }
+    else {
+      // Same read-only state: the value changes in place and the cursor stays where it can.
+      let range = null;
+      try { range = clampRange(this.editor.selected_range(), (this.ro ? this.shown : text).length); } catch (e) { range = null; }
+      this.editor.set_value(this.ro ? this.shown : text);
+      if (range) { try { this.editor.set_selected_range(range); } catch (e) { /* cursor stays at the start */ } }
+    }
+    if (this.mode === "preview" || this.mode === "lines") this.setMode(this.mode);
+    if (this.status === "image") this.copyImage().catch(() => { this.error = "Can't copy the image for a preview"; });
+    this.flash = true;
+    const gen = this.gen;
+    try { this.flashTimer?.cancel(); } catch (e) { /* done already */ }
+    this.flashTimer = cx.timer.after(RELOADED_MS, (cx) => { if (this.gen === gen) this.flash = false; cx.notify(); });
+  }
+
+  // Large-file window mode never reloads by itself: a size change only shows the banner.
+  largeChanged(bytes) {
+    if (bytes === (this.seenBytes ?? this.bytes)) return;
+    this.seenBytes = bytes;
+    this.outside = { large: true };
+  }
+
+  becameBinary(bytes) {
+    if (held(this)) { this.outside = { binary: true }; return; }
+    this.stopWatch();
+    this.editor?.release();
+    this.editor = null;
+    this.bytes = bytes; this.status = "binary"; this.modes = []; this.mode = null; this.lines = null; this.image = null;
+  }
+
+  fileGone() {
+    const s = { dirty: this.dirty, saving: this.saving, conflict: this.conflict, outside: this.outside, offer: this.offer };
+    if (reloadAction({ ...s, missing: true }) === "missing-banner") { this.gone = true; return; }
+    // Clean: the missing card, and the watch stays so the file comes back when it is recreated.
+    this.editor?.release();
+    this.editor = null;
+    this.status = "missing"; this.message = null; this.modes = []; this.mode = null; this.lines = null; this.image = null;
+    this.outside = null; this.gone = false; this.diff = null;
+  }
+
+  leave() {
+    this.stopWatch();
+    if (held(this) || this.gone) { this.away = true; this.outside = null; return; }
+    this.editor?.release();
+    this.editor = null;
+    this.status = "error"; this.message = TEXT.away; this.modes = []; this.mode = null; this.lines = null; this.image = null;
+    this.outside = null; this.gone = false; this.diff = null; this.disk = null; this.expected = null; this.shown = null;
+  }
+
+  // Remote files: a checksum (or the size) every few seconds; slower after failures, paused after many.
+  async pollRemote(cx, wg) {
+    if (!this.watching(wg)) return;
+    const sig = await this.remoteSig().catch(() => null);
+    if (!this.watching(wg)) return;
+    if (sig === null) this.pollFails++;
+    else {
+      this.pollFails = 0;
+      const changed = this.sig !== undefined && sig !== this.sig;
+      this.sig = sig;
+      if (changed) await this.check(cx, wg);
+    }
+    if (!this.watching(wg)) return;
+    const delay = pollDelay(this.pollFails);
+    if (delay === null) { this.paused = true; return; }
+    cx.timer.after(delay, (cx) => cx.spawn(async (cx) => { await this.pollRemote(cx, wg); cx.notify(); }));
+  }
+
+  // "crc:size" from cksum for text up to 1 MiB, else "size:n" from wc. Without cksum (a Windows remote) the size is used.
+  // A non-zero exit is a state too ("gone"), so a deleted file is noticed. Only these values are kept.
+  async remoteSig() {
+    const on = this.target.on, real = this.real;
+    if (!this.sizeOnly && this.status === "text" && (this.bytes ?? 0) <= MAX_BYTES) {
+      try {
+        const r = await exec("cksum", [real], { on, timeout: 4000 });
+        if (r.code !== 0) return "gone";
+        const s = parseCksum(r.stdout);
+        if (s) return "sum:" + s;
+        this.sizeOnly = true;
+      } catch (e) {
+        if (!notFound(e)) throw e;
+        this.sizeOnly = true;
+      }
+    }
+    const r = await exec("wc", ["-c", real], { on, timeout: 4000 });
+    if (r.code !== 0) return "gone";
+    const n = parseCount(r.stdout);
+    return n === null || n === undefined ? null : "size:" + n;
+  }
+
+  retryRemote(cx) {
+    this.paused = false;
+    this.pollFails = 0;
+    this.startWatch(cx);
+  }
+
+  reloadFromDisk(cx) { this.outside = null; cx.spawn(async (cx) => { await this.reload(cx); cx.notify(); }); }
+
+  dismissOutside() {
+    if (this.outside?.sum) this.dismissed = this.outside.sum;
+    this.outside = null;
+  }
+
+  // ---------- preview reuse ----------
+
+  // The slot's entry is written on a handled message and when the dirty or preview flag flips, never on a tick.
+  syncSlot() {
+    if (!this.slot) return;
+    const dirty = Boolean(this.dirty);
+    if (this.sent.dirty === dirty && this.sent.preview === this.preview) return;
+    this.writeSlot(this.sent.result);
+  }
+
+  // The entry carries the seq of the last message answered (ackSeq), never one still being checked, so drover-files
+  // never reads an older result as the answer to its newer message.
+  writeSlot(result) {
+    if (!this.slot) return;
+    const t = this.target ?? {}, p = typeof t.path === "string" ? t.path : null;
+    // A refused path is never put into shared state.
+    const path = p && !denyReason(p) && !(this.real && denyReason(this.real)) ? p : null;
+    const res = RESULTS.includes(result) ? result : null;
+    const entry = { path, on: t.on ?? null, preview: this.preview, dirty: Boolean(this.dirty), seq: this.ackSeq, result: res, at: Date.now() };
+    try { setShared(SLOTS_KEY, withSlot(shared(SLOTS_KEY), this.slot, entry, SLOTS_MAX)); } catch (e) { return; }
+    this.sent = { dirty: entry.dirty, preview: entry.preview, result: res };
+  }
+
+  // Answers message `seq`. An older message never answers after a newer one.
+  ack(seq, result) {
+    if (seq < this.ackSeq) return;
+    this.ackSeq = seq;
+    this.writeSlot(result);
+  }
+
+  // Reads the open message (render and a 300 ms timer). Only notes the seq here; the work runs after this frame.
+  checkOpen(cx) {
+    if (!this.slot || this.closed || !cx) return;
+    const m = openMessage(shared(OPEN_KEY), { slot: this.slot, lastSeq: this.lastSeq, now: Date.now() });
+    if (!m) return;
+    this.lastSeq = m.seq;
+    cx.timer.after(0, (cx) => { this.handleOpen(m, cx); cx.notify(); });
+  }
+
+  // A pin with no path pins the shown file. A retarget (or a click on the shown file) answers "ok" only after the
+  // gate passes on the new target, and the view changes only then: a denied, missing or linked target, a check that
+  // errors, or one that ends after ACK_BY_MS (drover-files has given up and split a new pane) answers "refused" and
+  // leaves this viewer as it was. The gate is the fast part (realpath and wc); content renders after the answer.
+  handleOpen(m, cx) {
+    if (this.closed) return;
+    const target = m.path === null ? null : normalizeTarget({ path: m.path, on: m.on, line: m.line }, home(), platform());
+    const invalid = Boolean(target?.error), denied = Boolean(target) && !invalid && Boolean(denyReason(target.path));
+    const same = Boolean(target) && !invalid && SHOWN.includes(this.status)
+      && target.path === this.target?.path && (target.on ?? null) === (this.target?.on ?? null);
+    const plan = planOpen(m, {
+      preview: this.preview, same, invalid, denied, dirty: this.dirty, saving: this.saving, conflict: this.conflict,
+      outside: this.outside, offer: this.offer, gone: this.gone, away: this.away,
+    });
+    if (!plan.gate) {
+      if (plan.pin) this.preview = false;
+      this.ack(m.seq, plan.result);
+      return;
+    }
+    const gen = this.gen;
+    cx.spawn(async (cx) => {
+      let g = null;
+      try { g = await this.gate(gen, plan.retarget ? target : this.target); } catch (e) { g = null; }
+      // A newer message answers instead; a closed pane answers nothing.
+      if (this.closed || this.lastSeq !== m.seq) return;
+      const late = Date.now() > m.at + ACK_BY_MS;
+      // Edits, a Keep open click or a navigation made while the gate ran also refuse a retarget.
+      const free = !plan.retarget || (this.preview && !held(this));
+      if (!g?.ok || late || !this.live(gen) || !free) {
+        // Held since the message came (edits, a banner, a draft offer): kept open, as planOpen does for a held viewer.
+        if (held(this)) this.preview = false;
+        this.ack(m.seq, "refused");
+        cx.notify();
+        return;
+      }
+      if (plan.pin) this.preview = false;
+      // A preview builds no back stack: the new file replaces this one, and load reuses the gate result.
+      if (plan.retarget) this.open(target, cx, g);
+      else if (m.line && this.status === "text" && this.modes.includes("lines")) this.gotoLine(String(m.line), cx);
+      this.ack(m.seq, plan.result);
+      cx.notify();
+    });
+  }
+
+  keepOpen() {
+    if (!this.slot || !this.preview) return;
+    this.preview = false;
+    this.writeSlot("pinned");
+  }
+
   async close() {
     this.closed = true;
+    this.stopWatch();
     if (this.draftDue) { try { await this.flushDraft(); } catch (e) { /* best effort */ } }
     this.editor?.release();
     this.editor = null;
+    try { this.flashTimer?.cancel(); } catch (e) { /* done already */ }
     try { this.lineHandle.release(); } catch (e) { /* already released */ }
     for (const [pane, id] of claims) if (id === this.id) claims.delete(pane);
     if (active === this.id) active = null;
@@ -522,14 +944,15 @@ export default class Viewer extends View {
     const p = this.real || this.target.path, name = p ? nameOf(p) : "Viewer";
     const content = ["text", "image", "large"].includes(this.status);
     const local = Boolean(this.real) && !this.target.on && !denyReason(this.real);
-    const meta = Boolean(this.ro) && content ? this.ro : undefined;
+    const meta = this.preview ? TEXT.preview : Boolean(this.ro) && content ? this.ro : undefined;
     const actions = [];
     if (this.status !== "empty") {
       if (content) actions.push({ id: "dv-reload", icon: UI("refresh"), label: "Reload from disk", onClick: (cx) => { active = this.id; cx.spawn(async (cx) => { await this.reload(cx); cx.notify(); }); } });
       if (local && this.status !== "denied") actions.push({ id: "dv-system", icon: UI("open"), label: this.systemLabel(), onClick: (cx) => { active = this.id; this.openSystem(cx); } });
       if (p) actions.push({ id: "dv-copy", icon: UI("copy"), label: "Copy path", onClick: (cx) => { active = this.id; this.copyPath(cx); } });
     }
-    return panelHeader({ id: "dv-header", title: name, meta, actions, busy: this.status === "loading" }, t);
+    return panelHeader({ id: "dv-header", title: name, meta, actions, busy: this.status === "loading" }, t)
+      .when(this.preview, (e) => e.child(div().flex_none().pr(8).child(this.button(t, "dv-keep", TEXT.keep, () => this.keepOpen()))));
   }
 
   pathLine(t) {
@@ -540,6 +963,7 @@ export default class Viewer extends View {
     return h_flex().id("dv-path").flex_none().px(12).py(4).gap(8).items_center().text_size(TYPE.xs)
       .child(image(icon).size(14).flex_none())
       .child(mono(div().flex_1().min_w(0).truncate().text_color(metaColor(t))).child(folder))
+      .when(this.flash, (e) => e.child(div().id("dv-reloaded").flex_none().text_color(metaColor(t)).child(TEXT.reloaded)))
       .when(this.dirty, (e) => e.child(div().id("dv-dirty").flex_none().text_color(t.accent).child("● Unsaved")));
   }
 
@@ -554,7 +978,7 @@ export default class Viewer extends View {
       .when(modes, (e) => e.child(h_flex().gap(4).children(this.modes.map((m) =>
         this.button(t, `dv-mode-${m}`, MODE_LABEL[m], () => this.setMode(m), { selected: this.mode === m })))))
       .when(editable, (e) => e
-        .child(this.button(t, "dv-save", this.saving ? "Saving…" : this.conflict?.kept ? "Save (replace disk)" : "Save", (cx) => cx.spawn(async (cx) => { await this.save(cx); cx.notify(); }), { primary: true, enabled: (this.dirty || this.conflict?.kept) && !this.saving }))
+        .child(this.button(t, "dv-save", this.saving ? "Saving…" : this.conflict?.kept ? "Save (replace disk)" : "Save", (cx) => cx.spawn(async (cx) => { await this.save(cx); cx.notify(); }), { primary: true, enabled: (this.dirty || this.conflict?.kept) && !this.saving && !this.away }))
         .when(this.dirty, (e) => e.child(this.button(t, "dv-revert", this.confirmRevert ? "Confirm revert" : "Revert", (cx) => this.revert(cx), { danger: this.confirmRevert }))))
       .child(div().flex_1())
       .when(md, (e) => e.child(this.button(t, "dv-links", linkMode(shared(LINK_KEY)) === "chooser" ? "Links: ask" : "Links: browser", () => setShared(LINK_KEY, linkMode(shared(LINK_KEY)) === "chooser" ? "system" : "chooser"))));
@@ -574,6 +998,17 @@ export default class Viewer extends View {
       this.button(t, "dv-conflict-keep", "Keep my draft", (cx) => cx.spawn(async (cx) => { await this.keepDraft(); cx.notify(); })),
       this.button(t, "dv-conflict-diff", "Show diff", (cx) => cx.spawn(async (cx) => { await this.showDiff(); cx.notify(); })),
     ]));
+    if (this.away) out.push(this.banner(t, "dv-away", t.blocked, TEXT.away));
+    else if (this.gone) out.push(this.banner(t, "dv-gone", t.blocked, TEXT.gone));
+    if (this.outside && !this.conflict && !this.away) {
+      const text = this.outside.sum ? TEXT.changed : TEXT.changedLarge;
+      out.push(this.banner(t, "dv-outside", t.accent, text, [
+        this.button(t, "dv-outside-reload", TEXT.reload, (cx) => this.reloadFromDisk(cx)),
+        ...(this.outside.sum ? [this.button(t, "dv-outside-diff", TEXT.diff, (cx) => cx.spawn(async (cx) => { await this.showDiff(); cx.notify(); }))] : []),
+        this.button(t, "dv-outside-dismiss", TEXT.dismiss, () => this.dismissOutside()),
+      ]));
+    }
+    if (this.paused) out.push(this.banner(t, "dv-paused", t.blocked, TEXT.paused, [this.button(t, "dv-paused-retry", TEXT.retry, (cx) => this.retryRemote(cx))]));
     if (this.conflict?.kept) out.push(this.banner(t, "dv-kept", t.blocked, "Your draft is kept. Save again to replace the version on disk."));
     if (this.offer) out.push(this.banner(t, "dv-offer", t.accent, `Unsaved draft from ${ago(this.offer.savedAt, Date.now())}${this.offer.stale ? " (the file changed since)" : ""}.`, [
       this.button(t, "dv-offer-restore", "Restore draft", () => this.restoreDraft()),
@@ -659,7 +1094,8 @@ export default class Viewer extends View {
     return this.card(t, "Nothing to show", null);
   }
 
-  render() {
+  render(cx) {
+    this.checkOpen(cx);
     const t = theme(), path = this.pathLine(t), bar = this.status === "empty" ? null : this.toolbar(t);
     return v_flex().id("dv").size_full().min_h(0).overflow_hidden().bg(t.background).text_color(t.foreground).text_size(TYPE.md)
       .on_mouse_down("left", () => { active = this.id; this.claim(); })
