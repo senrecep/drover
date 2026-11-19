@@ -432,11 +432,11 @@ export function groupRows(rows, by, home) {
 
 // Stop is offered only for a plain pid above 1 whose program is known, that is not a container
 // process, not an agent's own process and not a worker folded under its supervisor. An unknown
-// exe (tasklist or ps failed) gets no Stop: it might be a container process. Checked at render,
-// at the first click and at the second click.
+// exe (tasklist or ps failed, or the name was masked to "process") gets no Stop: it might be a
+// container process. Checked at render, at the first click and at the second click.
 export function canStop(row) {
   if (!row || !Number.isInteger(row.pid) || row.pid <= 1) return false;
-  if (typeof row.exe !== "string" || !row.exe) return false;
+  if (typeof row.exe !== "string" || !row.exe || row.exe === "process") return false;
   if (row.container || containerOf(row.exe)) return false;
   if (row.agentSelf || row.worker) return false;
   return true;
@@ -477,7 +477,7 @@ export function netstatHoldersOutcome(r, ports) {
 }
 
 // One read of the stopped ports. `baseline` is the pre-check read: a holder that already shared
-// the port with ours before the signal (a worker or sibling) counts as ours, not as a restart.
+// the port with ours before the signal (a worker or sibling) is never read as a restart.
 // -> { verdict: "stopped" | "waiting" | "restarted" | "unknown", pid?: number | null, port? }
 export function stopVerdict(pid, ports, h, baseline) {
   if (!h) return { verdict: "unknown" };

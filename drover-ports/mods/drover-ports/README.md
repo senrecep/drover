@@ -13,14 +13,16 @@ are never probed. A process started with `--inspect` counts as `debug` on all of
 Ports published by Docker Desktop, OrbStack, vpnkit, docker-proxy, rootless Docker or Podman
 helpers, Lima or WSL go into a Containers group, labelled Docker, Containers or WSL. They have no
 Stop: stop the container in its own tool. A row whose program name is unknown (for example when
-tasklist fails on Windows) has no Stop either.
+tasklist fails on Windows, or the name was hidden because it looked like a secret) has no Stop
+either.
 
 Stop asks for a second click within 4 seconds. Before it signals, it reads the port again: if the
 read fails, the port is already free, another process holds it now, or the pid now belongs to a
 different process (its start time moved by more than 2 seconds), nothing is sent. After the
 signal it reads the port once a second for up to 10 seconds and the card says Stopped, Still
 running, Started again (a watcher may have restarted it, with the new pid when it can be seen) or
-Could not check. A failed read never counts as stopped. Every lsof, ss, ps, netstat, tasklist,
+Could not check. A clean stop also shows a short "Stopped." notice, since the card goes away on
+the next refresh. A failed read never counts as stopped. Every lsof, ss, ps, netstat, tasklist,
 pwdx, kill, taskkill and open call has a 4 second timeout.
 
 ## Requirements
