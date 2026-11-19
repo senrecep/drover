@@ -1,4 +1,5 @@
 import { kidStatus, descendants, ownStatus, treeStatus } from "./tree.js";
+import { BG_MAX, BG_PROBE_WAIT } from "./lib/background.js";
 
 // The settled tail opens on this many, then grows by MORE.
 export const FIRST = 10, MORE = 25;
@@ -14,25 +15,36 @@ export const byRecent = (x, y) => y.since - x.since || byAddress(x, y);
 // that goes on within the grace, is the same run. Pinned and settled ones skip the grace: their
 // place doesn't hang on it. A turn ended while we weren't watching is news too. Hidden, nothing draws, so it goes by
 // `changed`, when it really changed; a time no later than the last we saw is about something else, so then it's now.
+// A Claude Code agent's grace is `hold` (lib/background.js) and says `bg`: "pending" until the read made as it ends has
+// answered (kept up to BG_PROBE_WAIT more), "yes" while a shell or workflow still runs (kept up to BG_MAX from the
+// hold's end, `bgSince`), else "no". Only numbers are kept.
 export function trackInboxRows(previous, list, all, now) {
   const changes = { ...previous }, waits = [];
   let dirty = false;
-  for (const { address, s, turn, excluded, first, changed, returned } of list) {
+  for (const { address, s, turn, excluded, first, changed, returned, hold = GRACE, bg = "no" } of list) {
     if (returned) {
       changes[address] = { s, at: now, turn, start: null };
       dirty = true;
       continue;
     }
     let was = changes[address];
-    // The grace ran out: back with the person as of then, so it lands on top, and the run is over.
-    if (was?.s === "idle" && was.start != null && (excluded || now - was.at >= GRACE)) {
-      was = changes[address] = { s: "idle", at: excluded ? now : was.at + GRACE, turn: was.turn };
-      dirty = true;
+    // The grace ran out: back with the person as of then, so it lands on top, and the run is over. Still running
+    // something, or not yet read, it stays; a Background stay that ends is news as of now.
+    if (was?.s === "idle" && was.start != null && (excluded || now - was.at >= hold)) {
+      const until = excluded ? -Infinity : bg === "yes" ? (was.bgSince ?? was.at + hold) + BG_MAX
+        : bg === "pending" && was.bgSince == null ? was.at + hold + BG_PROBE_WAIT : -Infinity;
+      if (now < until) {
+        if (bg === "yes" && was.bgSince == null) { was = changes[address] = { ...was, bgSince: was.at + hold }; dirty = true; }
+        waits.push(until - now);
+      } else {
+        was = changes[address] = { s: "idle", at: excluded || was.bgSince != null ? now : was.at + hold, turn: was.turn };
+        dirty = true;
+      }
     }
     if (was?.s === s && (s !== "idle" || turn <= (was.turn ?? turn))) continue;
     const when = changed > (was?.at ?? 0) ? changed : now;
-    const grace = was?.s === "working" && s === "idle" && !excluded && now - when < GRACE;
-    if (grace) waits.push(GRACE - (now - when));
+    const grace = was?.s === "working" && s === "idle" && !excluded && now - when < hold;
+    if (grace) waits.push(hold - (now - when));
     changes[address] = !was ? { s, at: first ?? 0, turn } // First sight says nothing about when it changed.
       : s === "working" ? { s, at: was.start ?? when, turn }
       // A pause for the person, stuck or replying while its sub-agents work: the run keeps its start.

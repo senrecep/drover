@@ -18,7 +18,10 @@ import { TYPE, SPACE, mono } from "./lib/panel-ui.js";
 const ROW = SPACE.ROW_H, HEAD = 24, HEAD_GAP = 6, PAD = 8, STEP = 20;
 export const STACK = 1;
 export const RANK = { blocked: 4, done: 3, working: 2, idle: 1 };
-export const SECTION = { 4: "Needs you", 3: "Done", 2: "Working", 1: "Idle" };
+export const SECTION = { 4: "Needs you", 3: "Done", 2: "Working", 1.5: "Background", 1: "Idle" };
+// A Claude Code agent whose turn ended with a shell or workflow still running (lib/background.js): between Working and
+// Idle. Not a status word: its mark is idle's ring in the working color.
+export const BACKGROUND = 1.5;
 
 // How long it's been in its state, as the shipped agents list says it.
 function duration(ms) {
@@ -94,20 +97,22 @@ function agentSubRow(view, t, s, shown, card, ghost) {
     .when([view.hovered, view.details, view.detailsOut].includes(rowId), (el) => el.child(card(name, rowId))), 6);
 }
 
-export function agentStatus(view, t, a, note = "", id) {
+export function agentStatus(view, t, a, note = "", id, bg = false) {
   const color = t[a.status] ?? t.dim;
   // drover-spaces' marks: a dot in the status color (needs you a touch larger), idle a ring. 12 wide, flush right.
+  // Background: the ring in the working color.
   let mark;
-  if (a.status === "idle") mark = div().size(6).mx(3).flex_none().rounded_full().border(1.5).border_color(t.idle ?? t.dim);
+  if (bg) mark = div().size(6).mx(3).flex_none().rounded_full().border(1.5).border_color(t.working ?? t.dim);
+  else if (a.status === "idle") mark = div().size(6).mx(3).flex_none().rounded_full().border(1.5).border_color(t.idle ?? t.dim);
   else if (a.status === "blocked") mark = div().size(8).mx(2).flex_none().rounded_full().bg(color);
   else mark = div().size(6).mx(3).flex_none().rounded_full().bg(a.status in RANK ? color : t.dim + "00");
-  const label = (SECTION[RANK[a.status]] ?? "Unknown") + note;
+  const label = (bg ? "Background" : SECTION[RANK[a.status]] ?? "Unknown") + note;
   const el = h_flex().size(16).flex_none().items_center().justify_end()
     .role("status").accessibility_label(label).child(mark);
   return id ? tipMark(view, t, `${id}-mark`, label, el.id(id)) : el;
 }
 
-export function agentEntries(view, t, { list, all, shown, ps, now, viewing, byPriority, own, shownStatus, groups }) {
+export function agentEntries(view, t, { list, all, shown, ps, now, viewing, byPriority, own, shownStatus, phaseOf = () => null, groups }) {
   const withKids = (a) => {
     const subs = agentTree(all, a.address);
     const r = { key: a.address, h: ROW + STACK, el: row(a, subs), ghost: () => row(a, subs, true) };
@@ -212,8 +217,9 @@ export function agentEntries(view, t, { list, all, shown, ps, now, viewing, byPr
     const full = byPriority || isPinned;
     const name = full ? more ?? (a.space_name || label(a)) : more ?? (/^\d+$/.test(label(a)) ? a.program?.name || label(a) : label(a));
     const where = full && more && a.space_name && a.space_name !== more ? a.space_name : null;
-    // Its sub-agents' word, when it isn't its own, is marked as theirs.
-    const fromKid = st !== "idle" && st !== own(a);
+    // Its sub-agents' word, when it isn't its own, is marked as theirs. Held on Working just after its turn, or
+    // Background, it's its own.
+    const bg = phaseOf(a) === "bg", fromKid = st !== "idle" && st !== own(a) && !phaseOf(a);
     const when = view.since(a);
     const lead = h_flex().size(16).flex_none().items_center().justify_center().when(Boolean(pic), el => el.child(pic));
     const time = mono(div().flex_none().text_size(TYPE.xs).text_color(t.dim)).opacity(offer ? 0 : 1).transition("opacity", MOTION).when(Boolean(when), el => el.child(duration(now - when)));
@@ -226,7 +232,7 @@ export function agentEntries(view, t, { list, all, shown, ps, now, viewing, byPr
       .rounded(6)
       .items_center()
       .gap(8)
-      .opacity(st === "working" && !on && !offer ? 0.7 : 1)
+      .opacity((st === "working" || bg) && !on && !offer ? 0.7 : 1)
       .when(on, (el) => el.bg(t.selected))
       .child(ghost ? lead : lead.id(`agent-fold-${a.address}`)
         .when(subs.length > 0, el => el.role("button").accessibility_label(view.isFolded(a.address) ? "Expand sub-agents" : "Collapse sub-agents").on_click((_e, cx) => {
@@ -243,7 +249,7 @@ export function agentEntries(view, t, { list, all, shown, ps, now, viewing, byPr
           : h_flex().id(`when-${a.address}`).relative().h(20).min_w(28).flex_none().items_center().justify_end()
             .child(time)
             .child(div().absolute().top(0).right(0).child(tip(view, t, pinId, isPinned ? "Unpin" : "Pin", pin()))))
-        .child(agentStatus(view, t, { status: st }, fromKid ? " (sub-agent)" : "", ghost ? undefined : `status-${a.address}`)));
+        .child(agentStatus(view, t, { status: st }, fromKid ? " (sub-agent)" : "", ghost ? undefined : `status-${a.address}`, bg)));
     if (ghost) return base;
     return stop(view, t, rowId, base
       .id(rowId)

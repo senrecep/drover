@@ -5,13 +5,14 @@ import { View, div, svg } from "gpui-kit";
 import { SPACE, TYPE, iconButton } from "./lib/panel-ui.js";
 import { findBlock, startState, resizeCommand, parseStored, sizeToRemember, parseRemembered } from "./lib/collapse.js";
 import { v_flex, h_flex } from "gpui-base";
-import { agents, terminals, panes, spaces, focused, theme, layout, shared, setShared, setAgentOrder, settings, openOverlay, closeOverlay, props, nextCommand, run } from "herdr";
-import { descendants, notNews, ownStatus, subAgents, treeStatus } from "./tree.js";
+import { agents, terminals, panes, spaces, focused, theme, layout, shared, setShared, setAgentOrder, settings, openOverlay, closeOverlay, props, nextCommand, run, exec, checking, window } from "herdr";
+import { descendants, notNews, ownStatus, subAgents, treeStatus, isAgent } from "./tree.js";
 import { glow, tip } from "./tip.js";
 import { stopsInit, stopsEnd, stop, focusRoot, enter, pressed, justClosed } from "./focus.js";
 import { menuJump } from "./list.js";
 import { MOTION, planMotion, flying, leavingRows } from "./motion.js";
-import { agentEntries, agentStatus, STACK, RANK, SECTION } from "./rows.js";
+import { agentEntries, agentStatus, STACK, RANK, SECTION, BACKGROUND } from "./rows.js";
+import { BackgroundProbe, eligible, childKinds, BG_HOLD, BG_PROBE_WAIT, BG_MAX, BG_SWEEP } from "./lib/background.js";
 import { sidebarParts } from "./sidebar.js";
 import { narrow, railCells } from "./rail.js";
 const SORTS = [
@@ -54,7 +55,15 @@ export default class Agents extends View {
     this.folded = JSON.parse(localStorage.getItem("folded") ?? "{}");
     // Each agent's last state and when it changed (ms), kept across restarts.
     this.changed = JSON.parse(localStorage.getItem("changed") ?? "{}");
-    cx.timer.every(1000, () => this.compute());
+    // Background work under a finished Claude Code turn (lib/background.js), in memory only: the reads, the turn each
+    // hold-end read was asked for, and the redraws already set (by when they fire).
+    this.bg = new BackgroundProbe({ exec: (...args) => exec(...args), now: () => Date.now(), isAgent });
+    this.bgAsked = new Map();
+    this.bgAt = new Set();
+    this.bgRows = [];
+    // It computes each second; a held or Background agent changing redraws.
+    cx.timer.every(1000, (cx) => this.compute(cx, true));
+    if (!checking()) cx.timer.every(BG_SWEEP, (cx) => this.bgSweep(cx));
     cx.timer.every(30000, (cx) => cx.notify()); // The rows' times move with nothing else changing.
     // Older installs kept pins in this list's storage; move them over once, before the inbox writes any.
     if (shared("agents.pins") == null && localStorage.getItem("pins")) setShared("agents.pins", JSON.parse(localStorage.getItem("pins")));
@@ -99,15 +108,18 @@ export default class Agents extends View {
   }
 
   // Stamps agents whose state changed. Done and idle count as one: looking at a
-  // finished agent turns done into idle, and looking isn't the agent doing anything.
+  // finished agent turns done into idle, and looking isn't the agent doing anything. A run that stopped also keeps
+  // when it did (`endedAt`), for the hold on Working and the Background stay.
   track(list, now) {
     let dirty = false;
     // As the tab has it: this list doesn't draw while the Inbox shows, so a frame's time would be when it came back.
     const changedAt = new Map(spaces().flatMap((s) => s.tabs ?? []).map((c) => [c.id, c.changed_at]));
     for (const a of list) {
       const s = a.status === "done" ? "idle" : a.status;
-      if (this.changed[a.address]?.s === s) continue;
-      this.changed[a.address] = { s, at: changedAt.get(a.tab) ?? now };
+      const was = this.changed[a.address];
+      if (was?.s === s) continue;
+      const at = changedAt.get(a.tab) ?? now;
+      this.changed[a.address] = was?.s === "working" && s === "idle" ? { s, at, endedAt: at } : { s, at };
       dirty = true;
     }
     if (!dirty) return;
@@ -195,7 +207,20 @@ export default class Agents extends View {
     return agentStatus(this, t, a, note, id);
   }
 
-  compute() {
+  // Every BG_SWEEP while this list draws and the window is in front: reads a few idle Claude Code agents past their
+  // hold, each no more than every BG_MIN_GAP.
+  bgSweep(cx) {
+    if (sidebarParts(layout()).stack?.active === "inbox") return;
+    this.bg.prune(new Set(agents().map((a) => a.address)));
+    if (!window().active) return;
+    this.compute(cx, true);
+    const planned = this.bgRows.length ? this.bg.plan(this.bgRows) : 0;
+    // A read in flight or one queued drains too: a read that hung is let go only in drain, even with one agent.
+    if (planned || this.bg.inFlight !== null || this.bg.queue.length) cx.spawn(async (cx) => { if (await this.bg.drain()) cx.notify(); });
+  }
+
+  // With `tick` (a timer, not a draw), a held or Background agent changing redraws.
+  compute(cx = null, tick = false) {
     const sort = sortOf();
     let list = agents();
     this.listed = new Map(list.map((a) => [a.address, a.status]));
@@ -226,12 +251,59 @@ export default class Agents extends View {
     const kidsOf = new Map(list.map((a) => [a.address, under(a.address)]));
     // As shown: its own word with its sub-agents'. Sorted, a viewed done agent keeps Done.
     const own = (a) => ownStatus(a.status, a.address, all);
+    // Just finished, a Claude Code agent is held on Working for BG_HOLD, then until the read made then answers (up to
+    // BG_PROBE_WAIT more). Still running something after, it's Background: idle for as long, done up to BG_MAX.
+    const drawing = sidebarParts(layout()).stack?.active !== "inbox";
+    const term = new Map(all.map((k) => [k.address, k]));
+    const phases = new Map(), bounds = [], rows = [];
+    for (const a of list) {
+      const o = own(a), tree = treeStatus(o, kidsOf.get(a.address));
+      if (o === "working" || o === "blocked") this.bg.forget(a.address);
+      const r = { a, own: o, tree, key: String(term.get(a.address)?.turn ?? 0) };
+      if (!eligible(a, o, tree)) continue;
+      const yes = childKinds(all, a.address, isAgent).terminal || this.bg.shown(a.address, r.key);
+      const pending = !yes && !this.bg.answered(a.address, r.key) && !this.bg.off();
+      const ended = this.changed[a.address]?.endedAt, age = ended != null ? now - ended : Infinity;
+      if (age < BG_HOLD) {
+        phases.set(a.address, "held");
+        bounds.push(ended + BG_HOLD);
+        continue;
+      }
+      rows.push(r);
+      if (pending && age < BG_HOLD + BG_PROBE_WAIT) {
+        phases.set(a.address, "held");
+        bounds.push(ended + BG_HOLD + BG_PROBE_WAIT);
+        // Its hold is over: one read for this turn, now, even with the window behind.
+        if (cx && drawing && !checking() && this.bgAsked.get(a.address) !== r.key) {
+          this.bgAsked.set(a.address, r.key);
+          if (this.bg.ask(r)) cx.spawn(async (cx) => { if (await this.bg.drain()) cx.notify(); });
+        }
+      } else if (yes && (o === "idle" || age < BG_MAX)) {
+        phases.set(a.address, "bg");
+        if (o !== "idle") bounds.push(ended + BG_MAX);
+      }
+    }
+    this.bgRows = rows;
+    for (const k of [...this.bgAsked.keys()]) if (!term.has(k)) this.bgAsked.delete(k);
+    for (const at of [...this.bgAt]) if (at <= now) this.bgAt.delete(at);
+    if (cx) for (const at of bounds) {
+      if (at <= now || this.bgAt.has(at)) continue;
+      this.bgAt.add(at);
+      // Its entry goes as it fires: a timer that fires a little early must not leave the redraw it was for unset.
+      cx.timer.after(at - now, (cx) => { this.bgAt.delete(at); this.compute(cx, true); });
+    }
+    const phaseOf = (a) => phases.get(a.address) ?? null;
+    const sig = JSON.stringify([...phases]);
+    if (tick && cx && sig !== this.bgSig) cx.notify();
+    this.bgSig = sig;
     // Settled or snoozed only drops the done dot, as tabs and pane headers do: hiding work is the Inbox's (docs/adr/0002).
     const shownStatus = (a) => {
+      if (phaseOf(a) === "held") return "working";
       const s = treeStatus(own(a), kidsOf.get(a.address));
       return s === "done" && notNews(all.find(k => k.address === a.address), own(a), kidsOf.get(a.address)) ? "idle" : s;
     };
-    const urgency = new Map(list.map((a) => [a.address, RANK[treeStatus(ownStatus(this.word(a), a.address, all), kidsOf.get(a.address))] ?? 0]));
+    const urgency = new Map(list.map((a) => [a.address, phaseOf(a) === "held" ? RANK.working : phaseOf(a) === "bg" ? BACKGROUND
+      : RANK[treeStatus(ownStatus(this.word(a), a.address, all), kidsOf.get(a.address))] ?? 0]));
     const rankOf = (a) => urgency.get(a.address);
     if (byPriority) list = [...list].sort((x, y) => rankOf(y) - rankOf(x) || this.since(y) - this.since(x) || y.seq - x.seq);
     this.prune(all);
@@ -241,7 +313,8 @@ export default class Agents extends View {
     const groups = /** @type {any[]} */ (pinned.length ? [{ id: "pinned", label: "Pinned", status: null, members: pinned }] : []);
     for (const a of rest) {
       const r = rankOf(a) || RANK.idle;
-      const id = byPriority ? `sec-${r}` : `sp-${a.space}`;
+      // No dot in an id: Background's section is sec-bg.
+      const id = byPriority ? (r === BACKGROUND ? "sec-bg" : `sec-${r}`) : `sp-${a.space}`;
       if (groups.at(-1)?.id === id) groups.at(-1).members.push(a);
       else groups.push({ id, label: byPriority ? SECTION[r] : a.space_name || "", space: byPriority ? null : a.space, members: [a] });
     }
@@ -259,13 +332,13 @@ export default class Agents extends View {
         if (shared("drover.agent-order") !== "lists") setShared("drover.agent-order", "lists");
       }
     } else this.agentOrder = null;
-    return { sort, list, all, shown, ps, now, viewing, byPriority, own, shownStatus, pinned, groups };
+    return { sort, list, all, shown, ps, now, viewing, byPriority, own, shownStatus, phaseOf, pinned, groups };
   }
 
   render(cx) {
     const t = theme();
     if (props()?.sortMenu) return this.sortMenu(t);
-    const data = this.compute();
+    const data = this.compute(cx);
     const { sort, list } = data;
     // Folded or dragged narrow: icon cells, the order and status as computed for the rows.
     if (narrow(layout())) {

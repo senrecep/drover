@@ -11,6 +11,7 @@ import { stop, within } from "./focus.js";
 import { snoozeButton } from "./snooze.js";
 import { SLIM } from "./list-view.js";
 import { TYPE, mono, metaColor } from "./lib/panel-ui.js";
+import { bgSentence } from "./lib/background.js";
 
 // The settle key: this Inbox's own command.
 const settleKey = () => "drover-inbox.settle";
@@ -37,7 +38,7 @@ function left(ms, now) {
 }
 
 export function inboxRowView(view, t, model, actions, drag) {
-  const { now, ps, sp, state, viewing, running, woke, busy, pins, started, since, wake, hidden, napUntil, settledAt } = model;
+  const { now, ps, sp, state, viewing, running, woke, busy, pins, started, since, wake, hidden, napUntil, settledAt, bgShown, bgKinds } = model;
   const { settle, unsettle, away, pick } = actions;
   const { dragging, plan, verb, badge, swept, row, open, sweepFrom, justDropped } = drag;
   const zoom = Number(settings()?.zoom) || 1;
@@ -121,7 +122,12 @@ export function inboxRowView(view, t, model, actions, drag) {
         : st === "blocked"
           ? pill(t.blocked, div().size(16).flex_none().rounded(4).bg(t.blocked + "26").text_size(11).font_bold().flex().items_center().justify_center().child("!"), "Needs you")
           : wokeMark
-            || (st === "done"
+            // Its turn is over but something it started still runs: a hollow ring, no spinner, the time since it ended.
+            || (bgShown(a)
+              ? tip(view, t, `bg-${a.address}`, bgSentence(bgKinds(a)), pill(t.working, h_flex().size(16).flex_none().items_center().justify_center()
+                .child(div().size(10).rounded_full().border(1.5).border_color(t.working)), "Background", since(a) > 0 ? took(since(a), now) : null)
+                .role("status").accessibility_label("Background"), { delay })
+              : st === "done"
               ? pill(t.ansi2, svg("mods/drover-inbox/icons/circle-check.svg").size(16).flex_none().text_color(t.ansi2), "Done")
               : div().id(`state-${a.address}`).flex_none().child(since(a) > 0 ? ago(since(a), now) : ""));
     // Still at work when it wakes, it says both; hovered, Woke stays and Working makes way.

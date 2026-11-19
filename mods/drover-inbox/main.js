@@ -11,9 +11,9 @@
 
 import { View } from "gpui-kit";
 import { v_flex, InputState } from "gpui-base";
-import { agents, terminals, panes, spaces, focused, hc, notify, theme, shared, setShared, setAgentOrder, props, nextCommand, settings, layout, window } from "herdr";
+import { agents, terminals, panes, spaces, focused, hc, exec, checking, notify, theme, shared, setShared, setAgentOrder, props, nextCommand, settings, layout, window } from "herdr";
 import { modStatus, programOf } from "./name.js";
-import { descendants, ownStatus, stillSettled } from "./tree.js";
+import { descendants, kidStatus, ownStatus, stillSettled, treeStatus, isAgent } from "./tree.js";
 import { stopsInit, stopsEnd, focusRoot, enter } from "./focus.js";
 import { FIRST, trackInboxRows, inboxInView, inboxFields, inboxSections } from "./row-model.js";
 import { DAY, initCustom, customView } from "./snooze.js";
@@ -24,6 +24,7 @@ import { inboxRowView } from "./row-view.js";
 import { inboxList } from "./list-view.js";
 import { sidebarParts } from "./sidebar.js";
 import { TYPE } from "./lib/panel-ui.js";
+import { BackgroundProbe, eligible, childKinds, bgAny, BG_HOLD, BG_SWEEP } from "./lib/background.js";
 
 // A label write render keeps asking for waits this long (ms) after failing.
 const RETRY = 60000;
@@ -78,6 +79,13 @@ export default class Inbox extends View {
     });
     // The cards' times (5m, 2h) move on by the minute.
     cx.timer.every(60000, (cx) => cx.notify());
+    // Background work under a finished Claude Code turn (lib/background.js): in memory only. Redraw timers already
+    // set, by when they fire, so a wait asked for again on every draw sets one.
+    this.waitsAt = new Set();
+    this.bg = new BackgroundProbe({ exec: (...args) => exec(...args), now: () => Date.now(), isAgent });
+    // The turn each agent's hold-end read was asked for.
+    this.bgAsked = new Map();
+    if (!checking()) cx.timer.every(BG_SWEEP, (cx) => this.bgSweep(cx));
     // `drover-inbox.clear`: Clear's confirm dialog. `drover-inbox.settle`: the settle key (bind it in keys.json; none is bound by default).
     // `drover-inbox.custom-snooze:<address>:<wake ms>`: the Custom dialog, a copy of this mod with no loop of its own.
     // `drover-inbox.undo`: the undo notice's Undo. The list draws that notice itself.
@@ -101,7 +109,14 @@ export default class Inbox extends View {
 
   track(list, all, now, cx) {
     const { changes, waits, dirty } = trackInboxRows(this.changed, list, all, now);
-    for (const ms of waits) cx.timer.after(ms, (cx) => cx.notify());
+    for (const at of [...this.waitsAt]) if (at <= now) this.waitsAt.delete(at);
+    for (const ms of waits) {
+      const due = now + ms;
+      if (this.waitsAt.has(due)) continue;
+      this.waitsAt.add(due);
+      // Its entry goes as it fires: a timer that fires a little early must not leave the wait it was for unset.
+      cx.timer.after(ms, (cx) => { this.waitsAt.delete(due); cx.notify(); });
+    }
     if (!dirty) return;
     // The row fields and handlers read this object live.
     for (const key of Object.keys(this.changed)) if (!(key in changes)) delete this.changed[key];
@@ -238,6 +253,15 @@ export default class Inbox extends View {
       const turned = window().active && viewing(a) && running(a) && ["idle", "done"].includes(this.changed[a.address]?.s);
       if (failed(a) || turned || (window().active && viewing(a) && until <= now)) this.setLabelDue("snoozed", a.address, "", cx);
     }
+    // Background work under a finished Claude Code turn (lib/background.js). Started again, what was read is over.
+    const bgInfo = new Map(every.map((a) => {
+      const r = { a, own: ownStatus(a.status, a.address, all), tree: state(a), key: String(term.get(a.address)?.turn ?? 0) };
+      if (r.own === "working" || r.own === "blocked") this.bg.forget(a.address);
+      const ok = eligible(a, r.own, r.tree);
+      const k = ok ? { ...(this.bg.kinds(a.address, r.key) ?? {}), ...childKinds(all, a.address, isAgent) } : null;
+      const kinds = bgAny(k) ? k : null;
+      return [a.address, { r, ok, kinds, bg: !ok ? "no" : kinds ? "yes" : this.bg.answered(a.address, r.key) || this.bg.off() ? "no" : "pending" }];
+    }));
     const tabs = new Map(sp.flatMap((s) => s.tabs.map((c) => [c.id, c])));
     this.track(every.map((a) => ({
       address: a.address, s: state(a) === "blocked" ? "blocked" : running(a) ? "working"
@@ -248,7 +272,19 @@ export default class Inbox extends View {
       // Its own word's change: with a sub-agent speaking for it, the tab's time needn't be about that.
       // shortcut: a tab's time is its latest agent's, so two agents changing in one hidden tab both read the later; fine until agents() gives each its own.
       changed: state(a) === ownStatus(a.status, a.address, all) ? tabs.get(a.tab)?.changed_at : null,
+      hold: bgInfo.get(a.address).ok ? BG_HOLD : undefined, bg: bgInfo.get(a.address).bg,
     })), all, now, cx);
+    // Its hold over and not read yet: one read for this turn, now, even with the window behind. Only while this list draws.
+    if ((!stack || stack.active === "inbox") && !checking()) for (const a of every) {
+      const b = bgInfo.get(a.address), m = this.changed[a.address];
+      if (b.bg !== "pending" || m?.s !== "idle" || m.start == null || now - m.at < BG_HOLD || this.bgAsked.get(a.address) === b.r.key) continue;
+      this.bgAsked.set(a.address, b.r.key);
+      if (this.bg.ask(b.r)) cx.spawn(async (cx) => { if (await this.bg.drain()) cx.notify(); });
+    }
+    for (const k of [...this.bgAsked.keys()]) if (!bgInfo.has(k)) this.bgAsked.delete(k);
+    const bgKinds = (a) => bgInfo.get(a.address)?.kinds ?? null;
+    // Kept on the Working shelf with something still running under it.
+    const bgShown = (a) => this.changed[a.address]?.s === "idle" && this.changed[a.address].start != null && Boolean(bgKinds(a));
     const sections = inboxSections(every.map((a) => ({ a, address: a.address, settledAt: settledAt(a), hidden: hidden(a),
       working: working(a), viewing: viewing(a), since: since(a), begun: begun(a), napUntil: napUntil(a) })),
       { scope, pins, workOpen: this.workOpen, napOpen: this.napOpen, open: this.open, limit: this.limit });
@@ -263,7 +299,29 @@ export default class Inbox extends View {
     }
     if (publish) this.publishRows([...pinned, ...out, ...busyRows, ...napRows, ...rows], inView,
       [...pinned, ...out, ...work, ...nap, ...put]);
-    return { now, all, ps, sp, f, every, inView, scope, term, pins, wake, ...fields, ...sections };
+    return { now, all, ps, sp, f, every, inView, scope, term, pins, wake, bgKinds, bgShown, ...fields, ...sections };
+  }
+
+  // Every BG_SWEEP while this list draws and the window is in front: keeps a Background card's reading fresh, a few
+  // agents a sweep, each no more than every BG_MIN_GAP. Only cards past their hold with something found running (`bgSince`).
+  bgSweep(cx) {
+    const { stack } = sidebarParts(layout());
+    if (stack && stack.active !== "inbox") return;
+    const runs = agents(), all = terminals();
+    this.bg.prune(new Set(runs.map((a) => a.address)));
+    if (!window().active) return;
+    const listed = new Map(runs.map((a) => [a.address, a.status]));
+    const rows = runs.filter((a) => {
+      const m = this.changed[a.address];
+      return m?.s === "idle" && m.start != null && m.bgSince != null;
+    }).map((a) => {
+      const own = ownStatus(a.status, a.address, all);
+      const tree = treeStatus(own, descendants(all, a.address).map((k) => kidStatus(k, listed)));
+      return { a, own, tree, key: String(all.find((k) => k.address === a.address)?.turn ?? 0) };
+    });
+    const planned = rows.length ? this.bg.plan(rows) : 0;
+    // A read in flight or one queued drains too: a read that hung is let go only in drain, even with one agent.
+    if (planned || this.bg.inFlight !== null || this.bg.queue.length) cx.spawn(async (cx) => { if (await this.bg.drain()) cx.notify(); });
   }
 
   publishRows(rows, view, ordered = rows) {

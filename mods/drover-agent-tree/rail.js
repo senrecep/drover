@@ -23,14 +23,15 @@ const centered = (el) => h_flex().w_full().flex_none().justify_center().child(el
 /**
  * The rail's cells, top to bottom. Every group's agents show, folded or not: nothing in the rail can
  * unfold a group, and an idle group starts folded.
- * @param {any} view @param {any} t @param {{ groups: any[], viewing: (a: any) => boolean, shownStatus: (a: any) => string }} data
+ * @param {any} view @param {any} t @param {{ groups: any[], viewing: (a: any) => boolean, shownStatus: (a: any) => string, phaseOf?: (a: any) => string | null }} data
  */
-export function railCells(view, t, { groups, viewing, shownStatus }) {
+export function railCells(view, t, { groups, viewing, shownStatus, phaseOf = () => null }) {
   const label = namer();
   const cell = (a) => {
     const st = shownStatus(a);
     const on = viewing(a);
-    const word = SECTION[RANK[st]] ?? "Unknown";
+    const bg = phaseOf(a) === "bg";
+    const word = bg ? "Background" : SECTION[RANK[st]] ?? "Unknown";
     const name = label(a) || a.program?.name || a.address;
     const tip = [name, word, a.space_name].filter(Boolean).join(" · ");
     const pic = programIcon(a.program, 16, t.foreground) ?? svg(FALLBACK_ICON).size(16).flex_none().text_color(t.muted);
@@ -41,7 +42,10 @@ export function railCells(view, t, { groups, viewing, shownStatus }) {
       .when(!on, (el) => el.hover((s) => s.bg(t.hover)))
       .on_click(() => focusAgent(a.address))
       .child(pic)
-      .when(DOTTED.has(st), (el) => el.child(div().absolute().right(3).bottom(2).size(st === "blocked" ? 8 : 7).rounded_full()
+      // Background: the row's mark, a ring in the working color, over the chrome so the icon doesn't show through.
+      .when(bg, (el) => el.child(div().absolute().right(3).bottom(2).size(7).rounded_full()
+        .border(1.5).border_color(t.working ?? t.dim).bg(t.chrome)))
+      .when(!bg && DOTTED.has(st), (el) => el.child(div().absolute().right(3).bottom(2).size(st === "blocked" ? 8 : 7).rounded_full()
         .border_1().border_color(t.chrome).bg(t[st] ?? t.dim))));
   };
   return groups.flatMap((g, i) => [
