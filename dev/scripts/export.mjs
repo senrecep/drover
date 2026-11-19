@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 // One-way export from the live Herdr config dir into this repo.
-// Usage: node scripts/export.mjs [--src <dir>]
+// Usage: node dev/scripts/export.mjs [--src <dir>]
 //
 // Reads the config dir and never writes to it. Writes the root layout (layouts/drover.json,
-// keys.json, mods/, themes/) and one folder per standalone mod item, then removes whatever it
-// no longer writes under those generated paths, then runs scripts/leak-gate.mjs.
+// keys.json, mods/, themes/) and one folder per standalone mod item under standalone/, then removes
+// whatever it no longer writes under those generated paths, then runs dev/scripts/leak-gate.mjs.
 // Every mod an item names must resolve to a mod the item ships or one Herdr ships; anything
 // else stops the export with file:line before a file is written.
 import fs from "node:fs";
@@ -17,37 +17,39 @@ export const OWNER = ["sen", "recep"].join("");
 export const REPO = "drover";
 
 // "." is the repo root, the layout item. Its mods are the closure of the published layout and keys.
+// The standalone items sit under standalone/.
 export const ITEMS = [
   { dir: ".", layout: "drover.json", mods: "layout" },
-  { dir: "drover-git", mods: ["drover-git", "drover-viewer", "drover-open", "drover-files"] },
-  { dir: "drover-viewer", mods: ["drover-viewer", "drover-open", "drover-files"] },
-  { dir: "drover-data", mods: ["drover-data"] },
-  { dir: "drover-ports", mods: ["drover-ports"] },
-  { dir: "drover-pulls", mods: ["drover-pulls"] },
-  { dir: "drover-worktrees", mods: ["drover-worktrees"] },
-  { dir: "drover-review", mods: ["drover-review"] },
-  { dir: "drover-overview", mods: ["drover-overview"] },
-  { dir: "drover-composer", mods: ["drover-composer"] },
-  { dir: "drover-dispatch", mods: ["drover-dispatch"] },
-  { dir: "drover-agents", mods: ["drover-agents"] },
-  { dir: "drover-sim", mods: ["drover-sim", "drover-sim-screen"] },
+  { dir: "standalone/drover-git", mods: ["drover-git", "drover-viewer", "drover-open", "drover-files"] },
+  { dir: "standalone/drover-viewer", mods: ["drover-viewer", "drover-open", "drover-files"] },
+  { dir: "standalone/drover-data", mods: ["drover-data"] },
+  { dir: "standalone/drover-ports", mods: ["drover-ports"] },
+  { dir: "standalone/drover-pulls", mods: ["drover-pulls"] },
+  { dir: "standalone/drover-worktrees", mods: ["drover-worktrees"] },
+  { dir: "standalone/drover-review", mods: ["drover-review"] },
+  { dir: "standalone/drover-overview", mods: ["drover-overview"] },
+  { dir: "standalone/drover-composer", mods: ["drover-composer"] },
+  { dir: "standalone/drover-dispatch", mods: ["drover-dispatch"] },
+  { dir: "standalone/drover-agents", mods: ["drover-agents"] },
+  { dir: "standalone/drover-sim", mods: ["drover-sim", "drover-sim-screen"] },
 ];
 
 // Printed on every run. Never written to the repo as a stub.
 export const PENDING = [];
 
+// A nested item's gallery name is its folder with "/" replaced by "--".
 export const installLine = (dir) => dir === "."
   ? `Read ~/.config/herdr-app/AGENTS.md, then add this layout: herdr.dev/layouts/${OWNER}/${REPO}`
-  : `Read ~/.config/herdr-app/AGENTS.md, then add this mod: herdr.dev/mods/${OWNER}/${REPO}--${dir}`;
+  : `Read ~/.config/herdr-app/AGENTS.md, then add this mod: herdr.dev/mods/${OWNER}/${REPO}--${dir.split("/").join("--")}`;
 export const installLines = () => ITEMS.map((i) => installLine(i.dir));
-// The only binary files the repo may carry: each item's preview, its source in docs-src, and the
-// layout's copy at layouts/drover.png, plus the README screenshots in docs-src/shots and their copies in shots.
+// The only binary files the repo may carry: each item's preview, its source in dev/docs-src, and the
+// layout's copy at layouts/drover.png, plus the README screenshots in dev/docs-src/shots.
 const SHOTS = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "docs-src", "shots");
 export const previewPaths = () => [...ITEMS.flatMap((i) => i.dir === "."
-  ? ["preview.png", "docs-src/preview.png", "layouts/drover.png"]
-  : [`${i.dir}/preview.png`, `docs-src/${i.dir}/preview.png`]),
+  ? ["preview.png", "dev/docs-src/preview.png", "layouts/drover.png"]
+  : [`${i.dir}/preview.png`, `dev/docs-src/${i.dir}/preview.png`]),
   ...(fs.existsSync(SHOTS) ? fs.readdirSync(SHOTS).filter((f) => f.endsWith(".png")) : [])
-    .flatMap((f) => [`shots/${f}`, `docs-src/shots/${f}`])];
+    .map((f) => `dev/docs-src/shots/${f}`)];
 // The copyright line of the root LICENSE (hand-written at the repo root; the export never writes it).
 export const LICENSE_LINE = `Copyright (c) 2026 ${OWNER}`;
 
@@ -360,26 +362,27 @@ function copyMod(ctx, w, mod, relDir) {
   }
 }
 
-// Hand-written gallery text in <repo>/docs-src (README, RECIPEs, previews), laid out like the repo.
-// "<name>.src.md" is published as "<name>.md", so the gallery never sees docs-src as an item.
-// Install-line markers are filled from OWNER, REPO and the item folder.
+// Hand-written gallery text in <repo>/dev/docs-src (README, RECIPEs, previews), laid out like the repo.
+// "<name>.src.md" is published as "<name>.md", so the gallery never sees dev/docs-src as an item.
+// Install-line markers are filled from OWNER, REPO and the item folder. shots/ stays in dev/docs-src:
+// the README links it there.
 function copyGallery(repo, w) {
-  const gal = path.join(repo, "docs-src");
+  const gal = path.join(repo, "dev", "docs-src");
   if (!fs.existsSync(gal)) return 0;
-  const items = new Set(ITEMS.map((i) => i.dir));
+  const items = ITEMS.map((i) => i.dir).filter((d) => d !== ".");
   let n = 0;
   (function walk(dir, rel) {
     for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
       // Dot entries (.DS_Store, hook state such as .omc) are never gallery text.
       if (e.isSymbolicLink() || e.name.startsWith(".")) continue;
       const p = path.join(dir, e.name);
-      if (e.isDirectory()) { walk(p, rel ? `${rel}/${e.name}` : e.name); continue; }
+      if (e.isDirectory()) { if (rel || e.name !== "shots") walk(p, rel ? `${rel}/${e.name}` : e.name); continue; }
       const name = e.name.endsWith(".src.md") ? e.name.slice(0, -".src.md".length) + ".md" : e.name;
       const r = rel ? `${rel}/${name}` : name;
       let buf = fs.readFileSync(p);
       if (r.endsWith(".md")) {
-        const here = rel && items.has(rel.split("/")[0]) ? rel.split("/")[0] : ".";
-        buf = Buffer.from(buf.toString("utf8").replace(/<!-- install(?::([\w.-]+))? -->[\s\S]*?<!-- \/install -->/g,
+        const here = items.find((d) => rel === d || rel.startsWith(d + "/")) ?? ".";
+        buf = Buffer.from(buf.toString("utf8").replace(/<!-- install(?::([\w./-]+))? -->[\s\S]*?<!-- \/install -->/g,
           (_m, dir) => `<!-- install${dir ? ":" + dir : ""} -->\n${installLine(dir ?? here)}\n<!-- /install -->`));
       }
       w.write(r, buf);
@@ -393,7 +396,7 @@ function copyGallery(repo, w) {
 // ---------- main ----------
 
 function main() {
-  const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+  const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
   const args = process.argv.slice(2);
   const si = args.indexOf("--src");
   const src = path.resolve(si >= 0 && args[si + 1] ? args[si + 1] : path.join(os.homedir(), ".config", "herdr-app"));
@@ -425,19 +428,20 @@ function main() {
   w.json("keys.json", pubKeys.keys);
   for (const f of LAYOUT_EXTRAS) { const p = path.join(src, "layouts", f); if (fs.existsSync(p)) w.write(`layouts/${f}`, fs.readFileSync(p)); }
   for (const f of THEMES) { const p = path.join(src, "themes", f); if (fs.existsSync(p)) w.write(`themes/${f}`, fs.readFileSync(p)); }
-  for (const f of SCRIPTS) { const p = path.join(src, "scripts", f); if (fs.existsSync(p)) w.write(`scripts/${f}`, fs.readFileSync(p), fs.statSync(p).mode & 0o777); }
+  for (const f of SCRIPTS) { const p = path.join(src, "scripts", f); if (fs.existsSync(p)) w.write(`dev/scripts/${f}`, fs.readFileSync(p), fs.statSync(p).mode & 0o777); }
   for (const { item, keys } of plans) {
     for (const mod of item.mods) copyMod(ctx, w, mod, `${item.dir}/mods`);
     if (keys) w.json(`${item.dir}/keys.json`, keys);
   }
   const gallery = copyGallery(repo, w);
 
-  // Generated roots only. LICENSE, .gitignore, docs-src and the two scripts here are never pruned.
-  // README.md comes from docs-src and is overwritten, never pruned.
+  // Generated roots only. LICENSE, .gitignore, dev/docs-src and the two scripts in dev/scripts are
+  // never pruned. README.md comes from dev/docs-src and is overwritten, never pruned. Root folders
+  // that hold mods/ are items from the old flat layout; scripts/ and shots/ are old generated roots.
   const itemDirs = fs.readdirSync(repo, { withFileTypes: true })
-    .filter((e) => e.isDirectory() && fs.existsSync(path.join(repo, e.name, "mods"))).map((e) => e.name);
-  const removed = w.prune([...new Set(["mods", "layouts", "themes", "keys", "keys.json", "RECIPE.md", "scripts/sync-lib.mjs", "shots",
-    ...ITEMS.filter((i) => i.dir !== ".").map((i) => i.dir), ...itemDirs.filter((d) => d !== "mods")])]);
+    .filter((e) => e.isDirectory() && e.name !== "dev" && fs.existsSync(path.join(repo, e.name, "mods"))).map((e) => e.name);
+  const removed = w.prune([...new Set(["mods", "layouts", "themes", "keys", "keys.json", "RECIPE.md", "dev/scripts/sync-lib.mjs",
+    "scripts", "shots", "standalone", ...itemDirs.filter((d) => d !== "mods")])]);
 
   console.log(`source: ${src}`);
   console.log("resolver:");

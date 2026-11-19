@@ -2,7 +2,7 @@
 // Leak gate: fails when a file the repo would publish names something private or a mod this
 // repo must not credit by name. It reads the git-visible set (tracked plus untracked, minus
 // ignored), checks every path and every text file, and prints file:line for each hit.
-// Usage: node scripts/leak-gate.mjs     (export.mjs runs it after each export)
+// Usage: node dev/scripts/leak-gate.mjs     (export.mjs runs it after each export)
 // The only allowed hits are the install lines export.mjs renders, matched whole, and whole lines
 // listed per file (the root LICENSE copyright line). Binary files are allowed only at the preview
 // paths export.mjs names; any other binary file is a hit.
@@ -98,7 +98,7 @@ export function report(result) {
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const here = path.dirname(fileURLToPath(import.meta.url));
-  const repo = path.resolve(here, "..");
+  const repo = path.resolve(here, "..", "..");
   // Not awaited: export.mjs imports this file, so it can load only once this one has.
   import(pathToFileURL(path.join(here, "export.mjs")).href)
     .then(({ installLines, LICENSE_LINE, previewPaths }) => { process.exitCode = report(gate(repo, installLines(), { LICENSE: [LICENSE_LINE] }, previewPaths())) ? 0 : 1; });

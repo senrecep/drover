@@ -10,21 +10,21 @@ The mods run on your machine, and on the machines you connected to Herdr. They c
 
 The spaces sidebar, and the same sidebar folded down to a rail of icons:
 
-![Spaces sidebar](shots/sidebar.png)
+![Spaces sidebar](dev/docs-src/shots/sidebar.png)
 
-![Folded sidebar rail](shots/sidebar-rail.png)
+![Folded sidebar rail](dev/docs-src/shots/sidebar-rail.png)
 
 The Files panel, with a filter box and git marks next to each file:
 
-![Files panel](shots/files.png)
+![Files panel](dev/docs-src/shots/files.png)
 
 The Panels list behind the buttons at the right of the tab bar, where you pick and pin side panels:
 
-![Panels list](shots/panels.png)
+![Panels list](dev/docs-src/shots/panels.png)
 
 The terminal menu, with new space, keybinds and the themes:
 
-![Terminal menu](shots/terminal-menu.png)
+![Terminal menu](dev/docs-src/shots/terminal-menu.png)
 
 ## Install
 
@@ -39,62 +39,62 @@ Single items:
 
 drover-git, a Git dialog for branches, merges, pushes and pull requests. It brings drover-viewer, drover-open and drover-files along.
 
-<!-- install:drover-git -->
+<!-- install:standalone/drover-git -->
 <!-- /install -->
 
 drover-viewer, a file viewer and editor pane with an "Open with" chooser and a file tree.
 
-<!-- install:drover-viewer -->
+<!-- install:standalone/drover-viewer -->
 <!-- /install -->
 
 drover-data, a SQLite browser and a TODO.md board for the focused folder.
 
-<!-- install:drover-data -->
+<!-- install:standalone/drover-data -->
 <!-- /install -->
 
 drover-ports, every listening TCP port with its process, its Herdr space, and Open and Stop buttons.
 
-<!-- install:drover-ports -->
+<!-- install:standalone/drover-ports -->
 <!-- /install -->
 
 drover-pulls, the open pull requests of your open spaces, with CI and review state.
 
-<!-- install:drover-pulls -->
+<!-- install:standalone/drover-pulls -->
 <!-- /install -->
 
 drover-worktrees, the git worktrees behind your spaces, with New, Remove and saved run commands.
 
-<!-- install:drover-worktrees -->
+<!-- install:standalone/drover-worktrees -->
 <!-- /install -->
 
 drover-review, a narrow panel of changed files with viewed marks and the files your agent touched.
 
-<!-- install:drover-review -->
+<!-- install:standalone/drover-review -->
 <!-- /install -->
 
 drover-overview, every agent on every machine by state, plus CPU, memory, GPU and ports per machine.
 
-<!-- install:drover-overview -->
+<!-- install:standalone/drover-overview -->
 <!-- /install -->
 
 drover-composer, one message sent to a terminal or to several agents at once.
 
-<!-- install:drover-composer -->
+<!-- install:standalone/drover-composer -->
 <!-- /install -->
 
 drover-dispatch, pick a GitHub issue and get a worktree, a space and two panes for it.
 
-<!-- install:drover-dispatch -->
+<!-- install:standalone/drover-dispatch -->
 <!-- /install -->
 
 drover-agents, the setup and token usage of the coding-agent CLIs on this computer.
 
-<!-- install:drover-agents -->
+<!-- install:standalone/drover-agents -->
 <!-- /install -->
 
 drover-sim, a Simulator panel that shows an iOS Simulator or an Android emulator and passes your taps and typing through to it. It brings drover-sim-screen along.
 
-<!-- install:drover-sim -->
+<!-- install:standalone/drover-sim -->
 <!-- /install -->
 
 Each folder has a RECIPE.md that describes the item and what it runs.
@@ -146,13 +146,13 @@ MIT, see [LICENSE](LICENSE). A few mods started as copies of mods that ship with
 
 ## How this repo is built
 
-The folders here are generated. The mods live in a Herdr config folder, and `node scripts/export.mjs` copies them out:
+The folders here are generated. The mods live in a Herdr config folder, and `node dev/scripts/export.mjs` copies them out:
 
 ```sh
-node scripts/export.mjs                # reads ~/.config/herdr-app
-node scripts/export.mjs --src <dir>    # reads another config folder
+node dev/scripts/export.mjs                # reads ~/.config/herdr-app
+node dev/scripts/export.mjs --src <dir>    # reads another config folder
 ```
 
-The script never writes to the config folder. It writes the layout (`layouts/drover.json`, `keys.json`, `mods/`, `themes/`) and one folder per single item, and leaves out local mods that are not part of drover. It copies the text in `docs-src/` into place, where `README.src.md` becomes `README.md` and `RECIPE.src.md` becomes `RECIPE.md`, and fills in the install lines. Last, it removes files it no longer writes and runs `scripts/leak-gate.mjs`, which fails the export when a private name or path slipped in.
+The script never writes to the config folder. It writes the layout (`layouts/drover.json`, `keys.json`, `mods/`, `themes/`) and one folder per single item under `standalone/`, and leaves out local mods that are not part of drover. It copies the text in `dev/docs-src/` into place, where `README.src.md` becomes `README.md` and `RECIPE.src.md` becomes `RECIPE.md`, and fills in the install lines. Last, it removes files it no longer writes and runs `dev/scripts/leak-gate.mjs`, which fails the export when a private name or path slipped in.
 
 So don't edit a generated folder by hand. Change the mod in Herdr, try it there, and export again. The two themes in `themes/` are not copied by the installer; put one in your own themes folder if you want it.
